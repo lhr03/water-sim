@@ -1,0 +1,24 @@
+# 依赖
+node_modules/
+
+# 由 scripts/sync-vendor.mjs 从 node_modules 生成，不入库
+vendor/
+
+# 打包产物
+dist/
+build/
+*.spec
+app.ico
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 日志与临时文件
+*.log
+.chrome/
+.chrome2/
+.tmp/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>水世界 · 3D 水中碰撞模拟器</title>
+<style>
+  :root{
+    --bg1:#eaf4fb; --bg2:#d7e9f6;
+    --panel:rgba(255,255,255,.86);
+    --line:rgba(15,42,66,.10);
+    --ink:#12304a; --ink2:#4a6a85;
+    --accent:#0ea5e9; --accent2:#0284c7;
+    --shadow:0 8px 28px rgba(16,58,96,.14);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:linear-gradient(160deg,var(--bg1),var(--bg2));
+    font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+  #app{position:fixed;inset:0}
+  canvas{display:block}
+
+  .glass{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+    backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2)}
+
+  /* ---------- 顶栏 ---------- */
+  #topbar{position:fixed;left:14px;top:14px;z-index:10;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+    padding:10px 12px;max-width:calc(100vw - 300px)}
+  .brand{font-weight:700;font-size:15px;letter-spacing:.5px;margin-right:4px;display:flex;align-items:center;gap:7px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#38bdf8,#0ea5e9);box-shadow:0 0 8px #38bdf8}
+  button,select{font-family:inherit;font-size:12.5px;color:var(--ink);background:#fff;border:1px solid var(--line);
+    border-radius:9px;padding:6px 11px;cursor:pointer;transition:.16s;outline:none}
+  button:hover{border-color:var(--accent);color:var(--accent2);background:#f0faff}
+  button.primary{background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(14,165,233,.28)}
+  button.primary:hover{filter:brightness(1.06);color:#fff}
+  button.on{background:#e0f2fe;border-color:var(--accent);color:var(--accent2)}
+  select{padding:6px 8px;max-width:190px}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+
+  /* ---------- 控制面板 ---------- */
+  #panel{position:fixed;right:14px;top:14px;bottom:14px;width:272px;z-index:10;overflow-y:auto;overflow-x:hidden;
+    padding:6px 4px 10px}
+  #panel::-webkit-scrollbar{width:7px}
+  #panel::-webkit-scrollbar-thumb{background:rgba(14,165,233,.35);border-radius:6px}
+  .group{border-bottom:1px dashed var(--line)}
+  .group:last-child{border-bottom:none}
+  .group-head{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;font-size:13px;font-weight:700;
+    color:var(--ink);user-select:none}
+  .group-head .chev{transition:transform .18s;color:var(--accent);font-size:11px}
+  .group.open .group-head .chev{transform:rotate(90deg)}
+  .group-body{display:none;padding:2px 14px 12px}
+  .group.open .group-body{display:block}
+  .row{margin:9px 0}
+  .lab-line{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--ink2);margin-bottom:5px}
+  .val{font-variant-numeric:tabular-nums;color:var(--accent2);font-weight:700;font-size:11.5px}
+  .lab{font-size:12px;color:var(--ink2)}
+  .row-inline{display:flex;justify-content:space-between;align-items:center}
+  input[type=range]{width:100%;height:18px;-webkit-appearance:none;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:5px;
+    background:linear-gradient(90deg,#bfe6fb,#e2eef7)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#fff;border:2.5px solid var(--accent);margin-top:-5px;box-shadow:0 2px 6px rgba(14,165,233,.35)}
+  input[type=range]::-moz-range-track{height:5px;border-radius:5px;background:#dbeaf7}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border:2.5px solid var(--accent);background:#fff;border-radius:50%}
+  .switch{position:relative;width:38px;height:21px;display:inline-block;flex:none}
+  .switch input{opacity:0;width:0;height:0;position:absolute}
+  .knob{position:absolute;inset:0;background:#dbe6ef;border-radius:21px;transition:.18s}
+  .knob:before{content:"";position:absolute;width:16px;height:16px;left:2.5px;top:2.5px;background:#fff;border-radius:50%;
+    transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .switch input:checked + .knob{background:var(--accent)}
+  .switch input:checked + .knob:before{transform:translateX(17px)}
+  .colorbox{width:48px;height:24px;padding:0;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer}
+  button.wide{width:100%;margin-top:4px;font-size:12px}
+
+  /* ---------- 状态栏 / 提示 ---------- */
+  #status{position:fixed;left:14px;bottom:14px;z-index:10;padding:8px 13px;font-size:12px;color:var(--ink2);
+    display:flex;gap:14px;align-items:center}
+  #status b{color:var(--accent2);font-variant-numeric:tabular-nums}
+  #hint{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:10;padding:10px 16px;font-size:12.5px;
+    color:var(--ink2);max-width:520px;line-height:1.7;transition:.3s}
+  #hint b{color:var(--accent2)}
+  #hint .close{margin-left:10px;cursor:pointer;color:var(--accent);font-weight:700}
+  #toast{position:fixed;left:50%;top:72px;transform:translate(-50%,-14px);z-index:20;padding:9px 16px;font-size:13px;
+    opacity:0;pointer-events:none;transition:.25s;background:rgba(255,255,255,.95);border:1px solid var(--line);
+    border-radius:11px;box-shadow:var(--shadow)}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #dropmask{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;
+    background:rgba(224,242,254,.55);backdrop-filter:blur(3px);font-size:20px;font-weight:700;color:var(--accent2)}
+  #dropmask.show{display:flex}
+  #loading{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    gap:12px;background:linear-gradient(160deg,var(--bg1),var(--bg2));font-size:14px;color:var(--ink2)}
+  .spin{width:34px;height:34px;border:3px solid rgba(14,165,233,.25);border-top-color:var(--accent);border-radius:50%;
+    animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/",
+    "cannon-es": "./vendor/cannon-es.js"
+  }
+}
+</script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="topbar" class="glass">
+    <div class="brand"><span class="dot"></span>水世界 · 水中碰撞模拟器</div>
+    <div class="sep"></div>
+    <button id="btnMode" class="primary">投放模式</button>
+    <select id="libSelect" title="选择要投放的物体"></select>
+    <button id="btnDropOne">投一个</button>
+    <button id="btnDrop5">随机投 5 个</button>
+    <div class="sep"></div>
+    <button id="btnImport">导入模型</button>
+    <button id="btnClear">清空</button>
+    <div class="sep"></div>
+    <button id="btnPause">暂停</button>
+    <button id="btnView">复位视角</button>
+  </div>
+
+  <div id="panel" class="glass"></div>
+
+  <div id="status" class="glass">
+    <span>FPS <b id="sFps">--</b></span>
+    <span>漂浮物 <b id="sCount">0</b></span>
+    <span>水面 <b id="sWave">0.00</b> m</span>
+  </div>
+
+  <div id="hint" class="glass">
+    <b>投放模式</b>：点击水面投放物体 · 按住物体可拖动<br>
+    <b>视角模式</b>：左键旋转 · 滚轮缩放 · 右键平移<br>
+    也可以直接把 <b>.glb / .gltf / .obj / .fbx / .stl</b> 文件拖进窗口
+    <span class="close" id="hintClose">知道了</span>
+  </div>
+
+  <div id="toast"></div>
+  <div id="dropmask">松开鼠标即可导入模型</div>
+  <div id="loading"><div class="spin"></div><div>正在初始化水体与物理引擎…</div></div>
+
+  <input type="file" id="fileInput" multiple accept=".glb,.gltf,.obj,.fbx,.stl" hidden />
+
+  <script type="module" src="./src/main.js"></script>
+  <script>
+    // 桌面版心跳：关掉窗口后 exe 会自动退出（用浏览器访问时这个请求只是 404，无副作用）
+    setInterval(function () { fetch('/__ping').catch(function () {}); }, 5000);
+  </script>
+</body>
+</html>

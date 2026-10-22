@@ -1,0 +1,11 @@
+# 统一用 LF 存进仓库，检出时按平台转换
+* text=auto eol=lf
+
+# Windows 批处理必须 CRLF，否则无法执行
+*.bat text eol=crlf
+
+# 二进制
+*.png binary
+*.ico binary
+*.wasm binary
+*.glb binary
