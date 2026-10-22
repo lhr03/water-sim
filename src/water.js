@@ -4,13 +4,28 @@ import { POOL } from './config.js';
 export const WAVE_COUNT = 6;
 const G = 9.81;
 
+/** mulberry32：小巧的确定性伪随机数生成器，用于可复现的波面种子 */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /**
  * 波浪场：同一套波参数同时供 JS（浮力/物理）与 GLSL（水面渲染）使用，
  * 保证“看到的水面”和“托住物体的水面”完全一致。
  *   h(p) = Σ amp_i * sin( k_i * dot(dir_i, p) - phase_i )
  */
 export class WaveField {
-  constructor(params) {
+  /**
+   * @param params 全局参数对象
+   * @param seed   可选随机种子。不传则每次随机（运行时希望每次打开波面不同）；
+   *               传入固定值可得到完全可复现的波面，供自检/回放使用。
+   */
+  constructor(params, seed = null) {
     this.params = params;
     this.time = 0;
     // 传给 shader 的数据
@@ -20,7 +35,8 @@ export class WaveField {
     this.maxAmp = 1;
     for (let i = 0; i < WAVE_COUNT; i++) this.waveA.push(new THREE.Vector4());
     this._seed = [];
-    for (let i = 0; i < WAVE_COUNT; i++) this._seed.push(Math.random() * Math.PI * 2);
+    const rand = seed === null ? Math.random : mulberry32(seed);
+    for (let i = 0; i < WAVE_COUNT; i++) this._seed.push(rand() * Math.PI * 2);
     this.rebuild();
   }
 

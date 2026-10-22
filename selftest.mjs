@@ -9,7 +9,8 @@ import { createPrimitive, buildFloatingTemplate, collectPoints, computeVolume } 
 let fail = 0;
 const ok = (c, m) => { console.log((c ? '  PASS  ' : '  FAIL  ') + m); if (!c) fail++; };
 
-const wave = new WaveField(params);
+// 固定种子：让每次运行的自检结果完全可复现（运行时用不传种子的随机波面）
+const wave = new WaveField(params, 20261022);
 const physics = new WaterPhysics(params, wave);
 
 // 泳池边界
@@ -96,16 +97,28 @@ function settle(density, seconds = 6) {
   const t = createPrimitive('ball', 0.6);
   const b = physics.addBody({
     shape: t.shape, mass: t.volume * density * params.waterDensity,
-    position: { x: (Math.random() - 0.5) * 4, y: 2, z: (Math.random() - 0.5) * 4 },
+    // 位置固定，避免随机落点导致的波浪相位差异让结果不可复现
+    position: { x: 0, y: 2, z: 0 },
     quaternion: new THREE.Quaternion(), volume: t.volume, probes: t.probes, size: t.size, mesh: null, seed: 2,
   });
-  for (let i = 0; i < seconds * 60; i++) { wave.update(dt); physics.step(dt); }
-  const yy = b.body.position.y;
+  // 物体稳定后仍会随浪上下起伏，取最后一秒的平均高度而不是某一瞬时值，
+  // 否则断言会随采样时刻在阈值边缘反复横跳。
+  const frames = Math.round(seconds * 60);
+  const tailFrames = 60;
+  let sum = 0, n = 0;
+  for (let i = 0; i < frames; i++) {
+    wave.update(dt); physics.step(dt);
+    if (i >= frames - tailFrames) { sum += b.body.position.y; n++; }
+  }
+  const yy = sum / n;
   physics.remove(b);
   return yy;
 }
 const light = settle(0.25), heavy = settle(1.1);
-ok(light > -0.1, `轻物(0.25)漂浮 y=${light.toFixed(3)}`);
+// 理论值：球半径 r=0.252，密度 0.25 时浸没 25% 体积，球缺解 x²(3-x)/4=0.25 得
+// 浸没深度 0.653r，球心应在水面下 0.347r ≈ -0.088。27 探针离散采样会带来几十毫米偏差，
+// 因此判定标准取「球心浸没不超过 0.8r」——即明显还浮在水面上，而不是沉下去。
+ok(light > -0.2, `轻物(0.25)漂浮 y=${light.toFixed(3)}（理论 ≈ -0.088）`);
 ok(heavy < -1.0, `重物(1.1)下沉 y=${heavy.toFixed(3)}`);
 
 // ---------- 6. 边界约束 ----------
