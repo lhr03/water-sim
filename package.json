@@ -1,5 +1,5 @@
 {
-  "name": "waterworld-3d",
+  "name": "water-sim",
   "version": "1.0.0",
   "description": "浏览器里的 3D 水中碰撞模拟器：可调风浪的泳池水体、任意模型导入、浮力物理与实时碰撞音效",
   "type": "module",
