@@ -1,29 +1,29 @@
-<view class="stage">
-  <canvas
-    type="webgl"
-    id="webgl"
-    class="gl"
-    bindtouchstart="onTouchStart"
-    bindtouchmove="onTouchMove"
-    bindtouchend="onTouchEnd"
-    bindtap="onTap"
-  ></canvas>
-
-  <!-- 顶部状态条 -->
-  <view class="hud">
+<view class="page">
+  <!-- 顶部工具条：必须放在 canvas 外面。
+       webgl 画布是原生组件，普通 view 叠在它上面在模拟器里会被盖住（同层渲染不可靠），
+       所以这里改成上下分区布局，不做叠加。 -->
+  <view class="topbar">
     <view class="seg">
       <view class="seg-item {{mode==='drop'?'on':''}}" data-m="drop" bindtap="onMode">投放</view>
       <view class="seg-item {{mode==='view'?'on':''}}" data-m="view" bindtap="onMode">视角</view>
     </view>
-    <view class="stat">{{count}} 个物体 · {{qualityName}}</view>
+    <view class="stat" wx:if="{{!loading}}">{{count}} 个物体 · {{qualityName}}</view>
+    <view class="stat" wx:else>装载中…</view>
   </view>
 
-  <view wx:if="{{loading}}" class="loading">
-    <view class="spin"></view>
-    <view class="loading-text">正在装载 3D 场景…</view>
+  <view class="stage">
+    <canvas
+      type="webgl"
+      id="webgl"
+      class="gl"
+      bindtouchstart="onTouchStart"
+      bindtouchmove="onTouchMove"
+      bindtouchend="onTouchEnd"
+      bindtap="onTap"
+    ></canvas>
   </view>
 
-  <!-- 底部面板 -->
+  <!-- 底部面板（普通流式布局，不覆盖画布） -->
   <view class="panel {{panelOpen?'open':''}}">
     <view class="panel-bar" bindtap="onTogglePanel">
       <view class="bar-title">{{tabName}}</view>
