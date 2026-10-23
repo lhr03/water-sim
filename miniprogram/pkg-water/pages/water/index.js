@@ -98,6 +98,7 @@ Page({
           this.scene.start();
         } catch (e) {
           console.error('[water] 初始化失败', e);
+          this.setData({ loading: false });
           wx.showModal({
             title: '场景初始化失败',
             content: String((e && e.message) || e).slice(0, 120),
@@ -112,7 +113,7 @@ Page({
   },
 
   onHide() { if (this.scene) this.scene.stop(); },
-  onShow() { if (this.scene) this.scene.start(); },
+  onShow() { if (this.scene) { this.scene.start(); this._syncSize(); } },
 
   /* ---------------------- 触摸 ---------------------- */
 
@@ -123,7 +124,23 @@ Page({
 
   /* ---------------------- 面板 ---------------------- */
 
-  onTogglePanel() { this.setData({ panelOpen: !this.data.panelOpen }); },
+  onTogglePanel() {
+    this.setData({ panelOpen: !this.data.panelOpen }, () => {
+      // 面板展开/收起会改变画布高度，等布局稳定后再同步尺寸，否则画面被拉伸变形
+      setTimeout(() => this._syncSize(), 80);
+    });
+  },
+
+  _syncSize() {
+    if (!this.scene) return;
+    wx.createSelectorQuery()
+      .select('#webgl')
+      .fields({ size: true })
+      .exec((res) => {
+        const r = res && res[0];
+        if (r && r.width && r.height && this.scene) this.scene.resize(r.width, r.height);
+      });
+  },
 
   onTab(e) {
     const t = e.currentTarget.dataset.t;
