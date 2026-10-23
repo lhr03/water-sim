@@ -25,6 +25,19 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: '浮力演示台 · 3D 水中碰撞模拟器', path: '/pages/index/index' };
+    return {
+      title: '浮力演示台 · 3D 水中碰撞模拟器',
+      path: `/pages/index/index?quality=${this.data.quality}`,
+    };
+  },
+
+  /**
+   * 分享到朋友圈。
+   * 只能指向首页：朋友圈是「单页模式」，用户直接进入被分享的那个页面本身，
+   * 而 3D 场景在分包里、且 webgl 画布在单页模式下不可用，指过去会白屏。
+   * 首页没有画布，正好安全。
+   */
+  onShareTimeline() {
+    return { title: '浮力演示台 · 3D 水中碰撞模拟器' };
   },
 });

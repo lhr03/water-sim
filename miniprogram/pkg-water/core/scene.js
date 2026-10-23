@@ -405,6 +405,7 @@ export class WaterScene {
     const ent = o && this.objects[o.userData.bodyIndex];
     if (ent) {
       this._grab = { ent, plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.params.waterLevel - 0.4) };
+      this.onEvent({ type: 'grabbed' });
       // 捏起来也叫一声，像真的抓了只鸭子
       if (this.audio) {
         if (ent.quack) this.audio.quack(0.6, 1.1);

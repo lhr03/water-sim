@@ -58,6 +58,53 @@
   color: #33505f;
   box-shadow: 0 4rpx 16rpx rgba(47, 143, 208, 0.18);
 }
+.help {
+  flex: 0 0 auto;
+  width: 48rpx;
+  height: 48rpx;
+  line-height: 46rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: #2f8fd0;
+  font-size: 28rpx;
+  font-weight: 700;
+  box-shadow: 0 4rpx 16rpx rgba(47, 143, 208, 0.18);
+  box-sizing: border-box;
+  border: 1rpx solid rgba(47, 143, 208, 0.25);
+}
+
+/* 三步上手提示：排在 flex 流里（不是浮层），所以一定会显示出来。
+   flex: 0 0 auto 让它吃掉的画布高度固定，不会跟着 flex 分配变化。 */
+.guide {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
+  background: #fff8e3;
+  border-bottom: 1rpx solid rgba(214, 158, 46, 0.25);
+}
+.guide-n {
+  flex: 0 0 auto;
+  background: #f0b429;
+  color: #fff;
+  font-size: 22rpx;
+  font-weight: 700;
+  border-radius: 999rpx;
+  padding: 6rpx 16rpx;
+}
+.guide-text {
+  flex: 1 1 auto;
+  font-size: 26rpx;
+  color: #6b5410;
+}
+.guide-skip {
+  flex: 0 0 auto;
+  font-size: 24rpx;
+  color: #a08a4a;
+  padding: 6rpx 8rpx;
+}
 
 /* 场景预设：4 个并排，选中高亮 */
 .presets {

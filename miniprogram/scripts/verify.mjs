@@ -376,6 +376,24 @@ ok(moved === physics.bodies.length,
     new URL('../pkg-water/core/scene.js', import.meta.url), 'utf8');
   ok(/_trackPerf\(rawDt\)/.test(src) && /const dt = Math\.min\(rawDt, 1 \/ 20\)/.test(src),
     '帧率统计用的是钳制前的真实 delta');
+
+  // 三步上手提示：第 2 步靠「抓到物体」推进，scene 必须发 grabbed 事件
+  ok(/onEvent\(\{\s*type:\s*'grabbed'\s*\}\)/.test(src) && /_tapDrop/.test(src)
+    && /onEvent\(\{\s*type:\s*'spawned'\s*\}\)/.test(src),
+    '抓取与投放都会发事件给页面（新手引导靠它推进）');
+  const pageSrc = (await import('node:fs')).readFileSync(
+    new URL('../pkg-water/pages/water/index.js', import.meta.url), 'utf8');
+  ok(/_advanceGuide\(1\)/.test(pageSrc) && /_advanceGuide\(2\)/.test(pageSrc),
+    '页面把 spawned / grabbed 接到了引导推进上');
+  // 每次出现或消失都在改画布高度，不同步尺寸画面会被拉伸
+  ok(/guideStep: step, guideText/.test(pageSrc)
+    && /setTimeout\(\(\) => this\._syncSize\(\), 80\)/.test(pageSrc),
+    '提示条出现/消失后重新同步画布尺寸');
+  const wxml = (await import('node:fs')).readFileSync(
+    new URL('../pkg-water/pages/water/index.wxml', import.meta.url), 'utf8');
+  // 原生画布之上做浮层不可靠，提示条必须在 flex 流里、且排在 stage 之前
+  ok(wxml.indexOf('class="guide"') >= 0 && wxml.indexOf('class="guide"') < wxml.indexOf('class="stage"'),
+    '上手提示排在 flex 流里、位于画布之前（不做浮层）');
 }
 
 console.log(fail === 0 ? '\n全部通过 ✓' : `\n失败 ${fail} 项 ✘`);

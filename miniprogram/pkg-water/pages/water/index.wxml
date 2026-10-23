@@ -10,6 +10,14 @@
     </view>
     <view class="stat" wx:if="{{!loading}}">{{count}} 个物体 · {{perfNote || qualityName}}</view>
     <view class="stat" wx:else>装载中…</view>
+    <view class="help" bindtap="onHelp">?</view>
+  </view>
+
+  <!-- 三步上手提示：同样排在 flex 流里，不做浮层 -->
+  <view class="guide" wx:if="{{guideStep > 0}}">
+    <view class="guide-n">{{guideStep}}/3</view>
+    <view class="guide-text">{{guideText}}</view>
+    <view class="guide-skip" bindtap="onGuideSkip">跳过</view>
   </view>
 
   <view class="stage">

@@ -74,6 +74,23 @@ const PRESETS = [
 
 const OBJECT_TYPES = [{ id: 'random', label: '随机' }, ...PRIMITIVE_TYPES];
 
+/*
+ * 三步上手提示。
+ *
+ * 之前验证过：type="webgl" 画布是原生组件，绝对定位盖在它上面的 view 在模拟器里
+ * 靠同层渲染时有时无。所以这条提示条必须排在 flex 流里（顶栏和画布之间），
+ * 不能做浮层。代价是它会挤掉一点画布高度——所以每次出现/消失都要 _syncSize。
+ *
+ * 每步由用户的实际操作推进，而不是靠计时器自动翻页：照着做一遍才记得住，
+ * 自动翻页等于没看见。
+ */
+const GUIDE_KEY = 'guide.v1';
+const GUIDE_STEPS = [
+  { n: 1, text: '点一下水面，就把东西丢下去' },
+  { n: 2, text: '按住任何一个漂浮物，可以拎起来拖动' },
+  { n: 3, text: '底部面板能调风浪，先试试「台风」' },
+];
+
 Page({
   data: {
     loading: true,
@@ -93,6 +110,8 @@ Page({
     preset: '',
     objectTypes: OBJECT_TYPES,
     dropType: 'random',
+    guideStep: 0,        // 0 = 不显示；1~3 = 正在提示第几步
+    guideText: '',
     dropTypeName: '随机',
     waterColors: ['#1d7fd0', '#0e5fa8', '#2fb4c8', '#1a9e8f', '#3a6fd8', '#7a5fc8'],
     lampColors: ['#ffb066', '#5ec8ff', '#ff6ec7', '#a5d6a7', '#ffd966', '#ff8a65'],
@@ -103,6 +122,12 @@ Page({
     this.quality = query.quality || 'mid';
     this.setData({ qualityName: QUALITY_NAME[this.quality] || '均衡' });
     wx.setNavigationBarTitle({ title: '浮力演示台 · 泳池' });
+    // 存盘读写失败（隐私模式、存储被清）就当没看过，每次都提示；宁可啰嗦也不能让用户不会用
+    try {
+      this._guideDone = wx.getStorageSync(GUIDE_KEY) === 1;
+    } catch (e) {
+      this._guideDone = false;
+    }
   },
 
   onReady() {
@@ -132,6 +157,8 @@ Page({
           for (let i = 0; i < 5; i++) this.scene.spawn('random');
           this.setData({ loading: false, params: this.scene.params, count: this.scene.count });
           this.scene.start();
+          // 场景已经跑起来了才提示，否则用户对着空白画面读操作步骤，等于白读
+          if (!this._guideDone) this._setGuideStep(1);
         } catch (e) {
           console.error('[water] 初始化失败', e);
           this.setData({ loading: false });
@@ -149,11 +176,15 @@ Page({
   },
 
   /**
-   * 场景事件。目前两类：
-   *  - spawned：物体数变了，刷新顶栏计数
+   * 场景事件。三类：
+   *  - spawned：物体数变了，刷新顶栏计数（同时也是新手引导第 1 步完成）
+   *  - grabbed：抓到了漂浮物（引导第 2 步完成）
    *  - perf：帧率撑不住，场景自动降了一档，告诉用户为什么画面变糊了
    */
   _onSceneEvent(e) {
+    if (!e) return;
+    if (e.type === 'spawned') this._advanceGuide(1);
+    if (e.type === 'grabbed') this._advanceGuide(2);
     if (e && e.type === 'perf') {
       this.setData({ perfNote: e.note, qualityName: '自动适配' });
       // 只提示一次：降完还可能再降，反复弹提示比画面糊更烦人
@@ -170,6 +201,41 @@ Page({
     if (this.scene) this.setData({ count: this.scene.count });
   },
 
+  /* ---------------------- 三步上手提示 ---------------------- */
+
+  /** @param step 当前正在提示第几步（1~3）；0 表示收起 */
+  _setGuideStep(step) {
+    const s = GUIDE_STEPS[step - 1];
+    this.setData({ guideStep: step, guideText: s ? s.text : '' }, () => {
+      // 提示条插在 flex 流里，出现/消失都会改画布高度，必须重新量一次，否则画面被拉伸
+      setTimeout(() => this._syncSize(), 80);
+    });
+  },
+
+  /**
+   * 只有当前正好在做这一步，并且用户做到了对应的动作，才推进一步。
+   * 这样即便用户跳过某一步自己先玩了别的，也不会乱跳。
+   */
+  _advanceGuide(doneStep) {
+    if (this.data.guideStep !== doneStep) return;
+    if (doneStep >= GUIDE_STEPS.length) this._finishGuide();
+    else this._setGuideStep(doneStep + 1);
+  },
+
+  _finishGuide() {
+    this._guideDone = true;
+    try { wx.setStorageSync(GUIDE_KEY, 1); } catch (e) { /* 存不下就算了 */ }
+    if (this.data.guideStep !== 0) this._setGuideStep(0);
+  },
+
+  onGuideSkip() { this._finishGuide(); },
+
+  /** 顶栏的「?」：主动想看操作时这才出现 */
+  onHelp() {
+    if (this.data.guideStep !== 0) this._setGuideStep(0);
+    else this._setGuideStep(1);
+  },
+
   onHide() { if (this.scene) this.scene.stop(); },
   onShow() { if (this.scene) { this.scene.start(); this._syncSize(); } },
 
@@ -183,6 +249,7 @@ Page({
   /* ---------------------- 面板 ---------------------- */
 
   onTogglePanel() {
+    this._advanceGuide(3);
     this.setData({ panelOpen: !this.data.panelOpen }, () => {
       // 面板展开/收起会改变画布高度，等布局稳定后再同步尺寸，否则画面被拉伸变形
       setTimeout(() => this._syncSize(), 80);
@@ -204,6 +271,7 @@ Page({
     const t = e.currentTarget.dataset.t;
     const found = TABS.find((x) => x.id === t);
     this.setData({ tab: t, tabName: found ? found.name : '' });
+    this._advanceGuide(3);   // 动了面板 = 第 3 步做到了
   },
 
   onMode(e) {
@@ -222,6 +290,7 @@ Page({
     const id = e.currentTarget.dataset.p;
     const p = PRESETS.find((x) => x.id === id);
     if (!p || !this.scene) return;
+    this._advanceGuide(3);
     this.scene.applyPreset(p.vals);
     const patch = { preset: id };
     for (const k of Object.keys(p.vals)) patch[`params.${k}`] = p.vals[k];
