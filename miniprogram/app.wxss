@@ -1,0 +1,17 @@
+page {
+  --blue-1: #eaf4fb;
+  --blue-2: #a8daf5;
+  --blue-3: #2f8fd0;
+  --ink: #1c2b36;
+  --line: rgba(47, 143, 208, 0.22);
+  background: #eaf4fb;
+  color: #1c2b36;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+.card {
+  background: #fff;
+  border: 1rpx solid var(--line);
+  border-radius: 24rpx;
+  box-shadow: 0 8rpx 28rpx rgba(47, 143, 208, 0.1);
+}

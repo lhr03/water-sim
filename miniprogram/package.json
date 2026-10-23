@@ -1,0 +1,10 @@
+{
+  "name": "water-sim-miniprogram",
+  "version": "1.0.0",
+  "description": "水世界 · 3D 水中碰撞模拟器（微信小程序版）",
+  "private": true,
+  "dependencies": {
+    "three-platformize": "^1.133.3",
+    "cannon-es": "^0.20.0"
+  }
+}

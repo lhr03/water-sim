@@ -1,6 +1,9 @@
 # 依赖
 node_modules/
 
+# 微信小程序：开发者工具「构建 npm」的产物
+miniprogram_npm/
+
 # 由 scripts/sync-vendor.mjs 从 node_modules 生成，不入库
 vendor/
 

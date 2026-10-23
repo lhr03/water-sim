@@ -1,0 +1,149 @@
+<view class="stage">
+  <canvas
+    type="webgl"
+    id="webgl"
+    class="gl"
+    bindtouchstart="onTouchStart"
+    bindtouchmove="onTouchMove"
+    bindtouchend="onTouchEnd"
+    bindtap="onTap"
+  ></canvas>
+
+  <!-- 顶部状态条 -->
+  <view class="hud">
+    <view class="seg">
+      <view class="seg-item {{mode==='drop'?'on':''}}" data-m="drop" bindtap="onMode">投放</view>
+      <view class="seg-item {{mode==='view'?'on':''}}" data-m="view" bindtap="onMode">视角</view>
+    </view>
+    <view class="stat">{{count}} 个物体 · {{qualityName}}</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading">
+    <view class="spin"></view>
+    <view class="loading-text">正在装载 3D 场景…</view>
+  </view>
+
+  <!-- 底部面板 -->
+  <view class="panel {{panelOpen?'open':''}}">
+    <view class="panel-bar" bindtap="onTogglePanel">
+      <view class="bar-title">{{tabName}}</view>
+      <view class="bar-arrow">{{panelOpen ? '收起' : '展开'}}</view>
+    </view>
+
+    <scroll-view wx:if="{{panelOpen}}" scroll-y class="panel-body">
+      <!-- 常用操作 -->
+      <view class="ops">
+        <view class="op" bindtap="onAdd">投放物体</view>
+        <view class="op" bindtap="onImport">导入模型</view>
+        <view class="op" bindtap="onClear">清空</view>
+        <view class="op" bindtap="onResetView">复位视角</view>
+      </view>
+
+      <!-- 分组切换 -->
+      <view class="tabs">
+        <view
+          wx:for="{{tabs}}"
+          wx:key="id"
+          class="tab {{tab===item.id?'on':''}}"
+          data-t="{{item.id}}"
+          bindtap="onTab"
+        >{{item.name}}</view>
+      </view>
+
+      <!-- 滑块组 -->
+      <block wx:if="{{tab!=='light' && tab!=='sound'}}">
+        <view class="row" wx:for="{{sliders}}" wx:key="key" wx:if="{{item.group===tab}}">
+          <view class="row-head">
+            <text class="lab">{{item.label}}</text>
+            <text class="val">{{params[item.key]}}{{item.unit}}</text>
+          </view>
+          <slider
+            min="{{item.min}}"
+            max="{{item.max}}"
+            step="{{item.step}}"
+            value="{{params[item.key]}}"
+            data-key="{{item.key}}"
+            data-group="{{item.group}}"
+            bindchanging="onSlider"
+            activeColor="#2f8fd0"
+            block-size="18"
+          />
+        </view>
+      </block>
+
+      <!-- 水色 -->
+      <view wx:if="{{tab==='water'}}" class="row">
+        <view class="row-head"><text class="lab">水色</text></view>
+        <view class="swatches">
+          <view
+            wx:for="{{waterColors}}"
+            wx:key="*this"
+            class="sw {{params.waterColor===item?'on':''}}"
+            style="background:{{item}}"
+            data-c="{{item}}"
+            bindtap="onWaterColor"
+          ></view>
+        </view>
+      </view>
+
+      <!-- 灯光 -->
+      <block wx:if="{{tab==='light'}}">
+        <view class="lamp" wx:for="{{params.lights}}" wx:for-index="li" wx:key="li">
+          <view class="lamp-head">
+            <text class="lamp-title">灯光 {{li + 1}}</text>
+            <switch checked="{{item.on}}" data-i="{{li}}" bindchange="onLampToggle" color="#2f8fd0" />
+          </view>
+          <view class="swatches">
+            <view
+              wx:for="{{lampColors}}"
+              wx:for-item="c"
+              wx:key="*this"
+              class="sw {{item.color===c?'on':''}}"
+              style="background:{{c}}"
+              data-i="{{li}}"
+              data-c="{{c}}"
+              bindtap="onLampColor"
+            ></view>
+          </view>
+          <view class="row" wx:for="{{lampSliders}}" wx:for-item="s" wx:key="key">
+            <view class="row-head">
+              <text class="lab">{{s.label}}</text>
+              <text class="val">{{params.lights[li][s.key]}}{{s.unit}}</text>
+            </view>
+            <slider
+              min="{{s.min}}" max="{{s.max}}" step="{{s.step}}"
+              value="{{params.lights[li][s.key]}}"
+              data-i="{{li}}" data-key="{{s.key}}"
+              bindchanging="onLampSlider"
+              activeColor="#2f8fd0" block-size="18"
+            />
+          </view>
+        </view>
+      </block>
+
+      <!-- 声音 -->
+      <block wx:if="{{tab==='sound'}}">
+        <view class="row">
+          <view class="row-head"><text class="lab">开启声音</text></view>
+          <switch checked="{{params.soundOn}}" bindchange="onSoundToggle" color="#2f8fd0" />
+        </view>
+        <view class="row" wx:for="{{soundSliders}}" wx:key="key">
+          <view class="row-head">
+            <text class="lab">{{item.label}}</text>
+            <text class="val">{{params[item.key]}}</text>
+          </view>
+          <slider
+            min="{{item.min}}" max="{{item.max}}" step="{{item.step}}"
+            value="{{params[item.key]}}"
+            data-key="{{item.key}}"
+            bindchanging="onSoundSlider"
+            activeColor="#2f8fd0" block-size="18"
+          />
+        </view>
+        <view class="tip">声音全部实时合成，不占包体积；首次开启需点一下屏幕才能出声。</view>
+      </block>
+
+      <view class="pad"></view>
+    </scroll-view>
+  </view>
+</view>
