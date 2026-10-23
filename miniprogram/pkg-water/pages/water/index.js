@@ -72,16 +72,23 @@ Page({
   onReady() {
     wx.createSelectorQuery()
       .select('#webgl')
-      .node()
+      // size 一起查：小程序的画布不会自己量尺寸，必须把布局宽高告诉渲染器
+      .fields({ node: true, size: true })
       .exec((res) => {
-        const node = res && res[0] && res[0].node;
+        const r = res && res[0];
+        const node = r && r.node;
         if (!node) {
           wx.showToast({ title: '无法获取画布', icon: 'none' });
           return;
         }
+        let dpr = 2;
+        try { dpr = wx.getSystemInfoSync().pixelRatio || 2; } catch (e) { /* 取不到就用 2 */ }
         try {
           this.scene = new WaterScene({
             canvas: node,
+            width: r.width,
+            height: r.height,
+            dpr,
             quality: this.quality,
             onEvent: () => this.setData({ count: this.scene.count }),
           });

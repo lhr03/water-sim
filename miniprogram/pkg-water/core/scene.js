@@ -18,8 +18,14 @@ const QUALITY = {
  * 3D 场景封装。页面只负责 UI，所有 three / 物理逻辑都在这里。
  */
 export class WaterScene {
-  constructor({ canvas, quality = 'mid', onEvent }) {
+  constructor({ canvas, width, height, dpr, quality = 'mid', onEvent }) {
     this.canvas = canvas;
+    // 小程序画布没有 CSS 像素尺寸的概念，布局尺寸要由页面量出来传进来。
+    // three 的 setSize 会按 pixelRatio 自动算缓冲区，所以这里必须传布局尺寸，
+    // 传 canvas.width 会导致再乘一次 pixelRatio，画面被放大裁切。
+    this.viewW = Math.max(1, Math.floor(width || canvas.width || 1));
+    this.viewH = Math.max(1, Math.floor(height || canvas.height || 1));
+    this.dpr = Math.min(dpr || 2, 2);
     this.quality = QUALITY[quality] ? quality : 'mid';
     this.q = QUALITY[this.quality];
     this.onEvent = onEvent || (() => {});
@@ -41,7 +47,7 @@ export class WaterScene {
     this._initControls();
 
     this.audio = new AudioEngine(this.params);
-    this.physics.onImpact = (e) => this.audio.impact(e.strength, e.underwater);
+    this.physics.onImpact = (e) => this.audio.impact(e.strength, !e.wet);
     this.physics.onSplash = (e) => this.audio.splash(e.strength);
   }
 
@@ -53,8 +59,8 @@ export class WaterScene {
       antialias: this.q.antialias,
       alpha: false,
     });
-    renderer.setPixelRatio(Math.min(this.q.pixelRatio, 2)); // 微信建议不要超过 2
-    renderer.setSize(this.canvas.width, this.canvas.height, false);
+    renderer.setPixelRatio(Math.min(this.q.pixelRatio, this.dpr, 2)); // 微信建议不要超过 2
+    renderer.setSize(this.viewW, this.viewH, false);
     // three 0.133 用 outputEncoding（0.152+ 才改叫 outputColorSpace）
     if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
     // 与网页版保持一致：用物理光照单位，灯光强度可直接沿用网页版数值
@@ -71,7 +77,7 @@ export class WaterScene {
     this.scene.background = new THREE.Color(0xcfe6f5);
     this.scene.fog = new THREE.Fog(0xcfe6f5, 45, 110);
 
-    const aspect = (this.canvas.width || 1) / (this.canvas.height || 1);
+    const aspect = this.viewW / this.viewH;
     this.camera = new THREE.PerspectiveCamera(52, aspect, 0.1, 300);
     this.camera.position.set(17, 11, 20);
     this.camera.lookAt(0, 0, 0);
@@ -187,9 +193,10 @@ export class WaterScene {
     const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
     const x = (t.x !== undefined ? t.x : t.clientX) || 0;
     const y = (t.y !== undefined ? t.y : t.clientY) || 0;
+    // 触点坐标是布局像素，必须除以布局尺寸（不是缓冲区尺寸）
     return new THREE.Vector2(
-      (x / (this.canvas.width || 1)) * 2 - 1,
-      -(y / (this.canvas.height || 1)) * 2 + 1,
+      (x / this.viewW) * 2 - 1,
+      -(y / this.viewH) * 2 + 1,
     );
   }
 
@@ -241,9 +248,11 @@ export class WaterScene {
     const px = x === undefined ? (Math.random() * 2 - 1) * mx : Math.max(-mx, Math.min(mx, x));
     const pz = z === undefined ? (Math.random() * 2 - 1) * mz : Math.max(-mz, Math.min(mz, z));
 
-    const mesh = tpl.mesh;
-    mesh.castShadow = this.q.shadow;
-    mesh.receiveShadow = this.q.shadow;
+    // createPrimitive 返回的是 root（一个 Group），不是 mesh
+    const mesh = tpl.root;
+    mesh.traverse((o) => {
+      if (o.isMesh) { o.castShadow = this.q.shadow; o.receiveShadow = this.q.shadow; }
+    });
     this.scene.add(mesh);
 
     const idx = this.objects.length;
