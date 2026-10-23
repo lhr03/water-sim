@@ -18,9 +18,17 @@ const QUALITY = {
 const MAX_OBJECTS = 40;
 
 /* 石灯笼的石材与熄灭时的灯芯颜色 */
-const STONE_ON = new THREE.Color(0x9e978a);
+const STONE_ON = new THREE.Color(0xa9a29a);
 const GLOW_OFF = new THREE.Color(0x3a3630);
 const _tmpColor = new THREE.Color();
+
+/**
+ * 火袋（灯室）中心离灯座底面的高度，单位米。
+ * 高度滑块调的是「火袋离地多高」，所以整盏灯按 FIREBOX_Y 等比缩放，
+ * 点光源也必须正好落在这个高度上。这个常量同时被 updateLights 和自检引用，
+ * 以前在三个地方各写了一遍 1.34，改结构时很容易漏掉一处。
+ */
+export const FIREBOX_Y = 1.19;
 
 /**
  * 石灯笼该站在哪儿。
@@ -177,9 +185,17 @@ export class WaterScene {
   }
 
   /**
-   * 一盏日式石灯笼（石灯籠）。
-   * 分层自下而上：基础 → 竿 → 中台 → 火袋（灯室）→ 笠 → 宝珠。
-   * 火袋用 6 根细石柱围出一个空腔，里面放发光的内芯，光就是从柱缝里漏出来的。
+   * 一盏日式石灯笼（織部灯籠）。
+   *
+   * 参照实物照片，自下而上是：
+   *   基座（一块石头雕出两条拱腿，顶上开尖拱洞）
+   *   → 中台（比火袋宽一圈的六角台）
+   *   → 火袋（上下六角板 + 6 根角柱，中腰一道窗棂，把窗口分成上下两格）
+   *   → 笠（很宽很扁的伞盖，直径约为火袋的 2.6 倍）
+   *   → 宝珠（莲座 + 圆珠 + 顶上的尖）
+   *
+   * 和最常见的「基础 + 长竿 + 火袋」三段式不同，这种没有竿，整盏灯中心很低，
+   * 摆在池边才像庭院里的真东西。发光内芯藏在火袋里，光从柱缝中漏出来。
    */
   _makeLamp(i) {
     const p = this.params.lights[i];
@@ -196,27 +212,58 @@ export class WaterScene {
       return m;
     };
 
-    part(new THREE.CylinderGeometry(0.26, 0.36, 0.16, 6), 0.08);        // 基础
-    part(new THREE.CylinderGeometry(0.094, 0.11, 0.84, 6), 0.58);       // 竿
-    part(new THREE.CylinderGeometry(0.30, 0.19, 0.10, 6), 1.05);        // 中台
-    part(new THREE.CylinderGeometry(0.28, 0.28, 0.045, 6), 1.125, false); // 火袋底板
+    /* ---- 基座：一块石头，正面雕出尖拱洞，剩下的就是两条腿 ---- */
+    const legHalfW = 0.46;
+    const legH = 0.72;
+    const archHalf = 0.20;
+    const archTop = 0.50;
+    const outline = new THREE.Shape();
+    outline.moveTo(-legHalfW, 0);
+    outline.lineTo(-legHalfW, legH);
+    outline.lineTo(legHalfW, legH);
+    outline.lineTo(legHalfW, 0);
+    outline.lineTo(archHalf, 0);
+    outline.lineTo(archHalf, archTop * 0.45);
+    // 两条二次曲线收到同一个尖点，就是照片里那种「尖拱」
+    outline.quadraticCurveTo(archHalf * 0.92, archTop * 0.88, 0, archTop);
+    outline.quadraticCurveTo(-archHalf * 0.92, archTop * 0.88, -archHalf, archTop * 0.45);
+    outline.lineTo(-archHalf, 0);
+    outline.closePath();
+    const baseGeo = new THREE.ExtrudeGeometry(outline, {
+      depth: 0.30,
+      bevelEnabled: false,
+      curveSegments: 5,   // 手机上够圆了，再多只是白烧三角形
+    });
+    baseGeo.translate(0, 0, -0.15);   // 挤出沿 +z，挪回来让厚度居中
+    part(baseGeo, 0);
 
-    const postGeo = new THREE.BoxGeometry(0.07, 0.40, 0.07);
+    /* ---- 中台：六角扁台，比火袋宽一圈 ---- */
+    part(new THREE.CylinderGeometry(0.50, 0.34, 0.16, 6), 0.80);
+
+    /* ---- 火袋：底板 + 6 根角柱 + 窗棂 ---- */
+    part(new THREE.CylinderGeometry(0.32, 0.36, 0.05, 6), 0.905, false);
+    const postH = 0.52;                       // 火袋净高：窗口才会接近方形
+    const postGeo = new THREE.BoxGeometry(0.075, postH, 0.075);
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2;
       const post = new THREE.Mesh(postGeo, stone);
-      post.position.set(Math.cos(a) * 0.235, 1.34, Math.sin(a) * 0.235);
-      post.rotation.y = -a;
+      // CylinderGeometry 的第 0 个顶点在 +z（x=r·sinθ, z=r·cosθ），
+      // 所以角柱也必须用 (sin, cos) 摆，否则会错开 30°、长在六角面的正中间。
+      post.position.set(Math.sin(a) * 0.295, FIREBOX_Y, Math.cos(a) * 0.295);
+      post.rotation.y = a - Math.PI / 2;   // 让方柱的一个面朝外，贴着六角的棱
       post.castShadow = false;   // 6 根细柱子不进退影 pass，省一次绘制
       group.add(post);
     }
+    // 中腰的窗棂会把每个窗口分成上下两格，和照片一致；没有它就是个空框，像鸟笼
+    part(new THREE.CylinderGeometry(0.278, 0.278, 0.028, 6), FIREBOX_Y, false);
 
     const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(p.color) });
-    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.40, 6), glowMat);
-    glow.position.y = 1.34;
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.46, 6), glowMat);
+    glow.position.y = FIREBOX_Y;
     group.add(glow);
 
-    // 灯周围一圈加法混合的雾光，手机上比后期 bloom 便宜得多
+    // 灯周围一圈加法混合的雾光，手机上比后期 bloom 便宜得多。
+    // 压扁一点，别鼓成球把笠的底面也糊亮。
     const haloMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(p.color),
       transparent: true,
@@ -224,13 +271,21 @@ export class WaterScene {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), haloMat);
-    halo.position.y = 1.34;
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), haloMat);
+    halo.position.y = FIREBOX_Y;
+    halo.scale.set(1, 0.85, 1);
     halo.renderOrder = 3;
     group.add(halo);
 
-    part(new THREE.CylinderGeometry(0.60, 0.33, 0.24, 6), 1.72);   // 笠
-    part(new THREE.SphereGeometry(0.085, 10, 8), 1.90, false);     // 宝珠
+    /* ---- 顶板 + 笠 ---- */
+    part(new THREE.CylinderGeometry(0.38, 0.32, 0.05, 6), 1.475, false);
+    // 笠：底半径 0.80、高只有 0.20 —— 又宽又扁才是伞盖，压厚了就像一块石饼
+    part(new THREE.CylinderGeometry(0.24, 0.80, 0.20, 6), 1.60);
+
+    /* ---- 宝珠 ---- */
+    part(new THREE.CylinderGeometry(0.20, 0.12, 0.07, 6), 1.735, false);  // 莲座
+    part(new THREE.SphereGeometry(0.14, 10, 8), 1.845, false);            // 珠
+    part(new THREE.ConeGeometry(0.05, 0.14, 8), 1.975, false);            // 尖
 
     const light = new THREE.PointLight(new THREE.Color(p.color), p.on ? p.intensity : 0, 60, 2);
     this.lampGroup.add(group, light);
@@ -449,13 +504,13 @@ export class WaterScene {
       if (!L) return;
       const spot = lanternSpot(p.azimuth, p.outset);
       // 高度滑块指的是「火袋离地多高」，整盏灯按比例缩放，灯室才会正好对上光点
-      const s = THREE.MathUtils.clamp((p.height - deckY) / 1.34, 0.45, 2.4);
+      const s = THREE.MathUtils.clamp((p.height - deckY) / FIREBOX_Y, 0.45, 2.4);
       L.group.position.set(spot.x, deckY, spot.z);
       L.group.scale.setScalar(s);
       L.group.rotation.y = -THREE.MathUtils.degToRad(p.azimuth);
       L.light.color.set(p.color);
       L.light.intensity = p.on ? p.intensity : 0;
-      L.light.position.set(spot.x, deckY + 1.34 * s, spot.z);
+      L.light.position.set(spot.x, deckY + FIREBOX_Y * s, spot.z);
       _tmpColor.set(p.color);
       L.glow.material.color.copy(p.on ? _tmpColor : GLOW_OFF);
       L.halo.material.color.copy(_tmpColor);

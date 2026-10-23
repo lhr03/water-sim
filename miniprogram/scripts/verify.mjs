@@ -95,7 +95,7 @@ ok(Math.abs(lanternSpot(0, 2.4).x - lanternSpot(0, 0).x - 2.4) < 1e-6,
 
 // 石灯笼本体：绕开需要 WebGL 的构造函数，只借原型方法跑一遍几何构建
 {
-  const { WaterScene } = await import('../pkg-water/core/scene.js');
+  const { WaterScene, FIREBOX_Y } = await import('../pkg-water/core/scene.js');
   const fake = {
     params: JSON.parse(JSON.stringify(params)),
     q: { shadow: true },
@@ -106,12 +106,63 @@ ok(Math.abs(lanternSpot(0, 2.4).x - lanternSpot(0, 0).x - 2.4) < 1e-6,
   WaterScene.prototype.updateLights.call(fake);
   const meshes = [];
   fake.lampGroup.traverse((o) => { if (o.isMesh) meshes.push(o); });
-  ok(meshes.length >= 3 * 11, `3 盏石灯笼共 ${meshes.length} 个部件（基础/竿/中台/6 柱/笠/宝珠…）`);
+  ok(meshes.length >= 3 * 15, `3 盏石灯笼共 ${meshes.length} 个部件（基座/中台/6 柱/窗棂/笠/宝珠…）`);
   const L = fake.lamps[0];
-  const wantY = POOL.wallHeight + 1.34 * L.group.scale.x;
+  const wantY = POOL.wallHeight + FIREBOX_Y * L.group.scale.x;
   ok(Math.abs(L.light.position.y - wantY) < 1e-6,
-    `灯芯正好在火袋里：y=${L.light.position.y.toFixed(2)}（灯笼高 ${L.group.scale.x.toFixed(2)}×）`);
+    `灯芯正好在火袋里：y=${L.light.position.y.toFixed(2)}（灯笼 ${L.group.scale.x.toFixed(2)}×）`);
   ok(L.light.position.y > L.group.position.y + 0.4, '灯芯在灯笼内部而不是地面');
+
+  // 織部灯笼的关键结构：没有长竿，靠一块雕空石的拱腿撑起；笠要明显比火袋宽。
+  const own = [];
+  L.group.traverse((o) => { if (o.isMesh) own.push(o); });
+  const base = own.find((m) => m.geometry.type === 'ExtrudeGeometry');
+  ok(!!base, '基座是挤出的拱形石块（不是三段式的圆盘+竿）');
+  base.updateMatrixWorld(true);
+  const hit = (x, y) => {
+    const r = new THREE.Raycaster(new THREE.Vector3(x, y, 1), new THREE.Vector3(0, 0, -1));
+    return r.intersectObject(base).length > 0;
+  };
+  ok(!hit(0, 0.25) && hit(0.38, 0.25) && hit(0, 0.62),
+    '拱洞真的挖通了：正中镂空、腿部与拱顶之上是实心');
+
+  const posts = own.filter((m) => m.geometry.type === 'BoxGeometry');
+  const cap = own.find((m) => m.geometry.type === 'CylinderGeometry'
+    && m.geometry.parameters.radiusBottom >= 0.7);
+  ok(posts.length === 6, `火袋 6 根角柱（${posts.length}）`);
+  ok(!!cap, '笠存在');
+  // 角柱必须落在六角板的棱上。CylinderGeometry 的第 0 个顶点在 +z，
+  // 用 (cos, sin) 摆会整体错开 30°、柱子长在面的中间。
+  let worst = 0;
+  for (const post of posts) {
+    const ang = Math.atan2(post.position.x, post.position.z);
+    let best = Math.PI;
+    for (let k = 0; k < 6; k++) {
+      const v = (k / 6) * Math.PI * 2;
+      const d = Math.abs(((ang - v + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      best = Math.min(best, d);
+    }
+    worst = Math.max(worst, (best * 180) / Math.PI);
+  }
+  ok(worst < 1, `6 根角柱都长在六角棱上（最大偏差 ${worst.toFixed(1)}°）`);
+
+  const postR = Math.hypot(posts[0].position.x, posts[0].position.z);
+  ok(cap.geometry.parameters.radiusBottom / postR > 2.3,
+    `笠比火袋宽得多：${(cap.geometry.parameters.radiusBottom * 2).toFixed(2)} m vs 火袋 ${(postR * 2).toFixed(2)} m`);
+  // 量比例前把 updateLights 加的缩放/位移/旋转清掉，否则量到的是世界空间里的斜置 AABB
+  L.group.position.set(0, 0, 0);
+  L.group.rotation.y = 0;
+  L.group.scale.setScalar(1);
+  L.group.updateMatrixWorld(true);
+  const total = new THREE.Box3().setFromObject(L.group).getSize(new THREE.Vector3());
+  // 照片里笠宽 / 整灯高 ≈ 0.78，这个比例定了才像織部灯笼；厚薄也会一眼看出假
+  ok(total.z / total.y > 0.72 && total.z / total.y < 0.85,
+    `整灯比例像照片：高 ${total.y.toFixed(2)} m、笠宽 ${total.z.toFixed(2)} m（宽高比 ${(total.z / total.y).toFixed(2)}）`);
+  ok(cap.geometry.parameters.height <= 0.22, `笠够扁（厚 ${cap.geometry.parameters.height.toFixed(2)} m），不是石饼`);
+  const glowBB = new THREE.Box3().setFromObject(L.glow);
+  ok(glowBB.min.y > 0.9 && glowBB.max.y < 1.6,
+    `发光内芯完整藏在火袋里（${glowBB.min.y.toFixed(2)}~${glowBB.max.y.toFixed(2)} m）`);
+
   fake.params.lights[0].on = false;
   WaterScene.prototype.updateLights.call(fake);
   ok(L.light.intensity === 0, '关闭后点光源强度归零');
