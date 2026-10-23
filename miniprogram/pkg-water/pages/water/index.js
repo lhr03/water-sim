@@ -125,7 +125,7 @@ Page({
     guideText: '',
     timePresets: TIME_PRESETS,
     timePreset: '',
-    timeOfDay: 10.5,
+    timeOfDay: 8.3,
     sunText: '',
     lampIdx: 0,          // 当前在调第几盏灯
     lampMore: false,     // 方位/离池边/高度默认收起，一屏才装得下

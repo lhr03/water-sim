@@ -34,7 +34,7 @@ export const params = {
   // timeOfDay 是「时刻」（0~24 小时），太阳高度与方位都由它推出来：
   // 6 点日出、12 点最高、18 点日落。sunElevation / sunAzimuth 是派生值，
   // 不要手改——改了就变成两个真相源，滑到某个时刻画面却不变。
-  timeOfDay: 10.5,
+  timeOfDay: 8.3,
   sunAzimuth: 135,
   sunElevation: 38,
   sunStrength: 1.0,       // 阳光强度倍率，阴天感就往下拉

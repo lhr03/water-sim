@@ -46,8 +46,8 @@ export const SKY_STOPS = [
   { el: -8,  sky: '#1a2540', horizon: '#2e3a55', skyTop: '#0b1220', sunColor: '#66739a', sunIntensity: 0.06, hemiSky: '#2b3d5c', hemiGround: '#0f141c', hemi: 0.16, ambColor: '#2b3a56', amb: 0.06 },
   { el: 0,   sky: '#e0a07a', horizon: '#ffc08a', skyTop: '#6d86ab', sunColor: '#ff9a55', sunIntensity: 0.35, hemiSky: '#e8b48e', hemiGround: '#3a3226', hemi: 0.30, ambColor: '#d8b090', amb: 0.10 },
   { el: 8,   sky: '#eecca8', horizon: '#ffe0b8', skyTop: '#8fadc9', sunColor: '#ffbe7a', sunIntensity: 1.30, hemiSky: '#f0d8bc', hemiGround: '#4a4234', hemi: 0.40, ambColor: '#e6d2b8', amb: 0.14 },
-  { el: 22,  sky: '#cfe6f5', horizon: '#eaf4fb', skyTop: '#8dc0e2', sunColor: '#fff0d8', sunIntensity: 2.20, hemiSky: '#d6ecff', hemiGround: '#4a6b60', hemi: 0.52, ambColor: '#cfe0ee', amb: 0.17 },
-  { el: 70,  sky: '#cfe6f5', horizon: '#f4faff', skyTop: '#79b0da', sunColor: '#fffaf0', sunIntensity: 2.90, hemiSky: '#d6ecff', hemiGround: '#4a6b60', hemi: 0.58, ambColor: '#cfe0ee', amb: 0.18 },
+  { el: 22,  sky: '#cfe6f5', horizon: '#eaf4fb', skyTop: '#8dc0e2', sunColor: '#fff0d8', sunIntensity: 2.05, hemiSky: '#d6ecff', hemiGround: '#4a6b60', hemi: 0.52, ambColor: '#cfe0ee', amb: 0.17 },
+  { el: 70,  sky: '#cfe6f5', horizon: '#f4faff', skyTop: '#79b0da', sunColor: '#fffaf0', sunIntensity: 2.75, hemiSky: '#d6ecff', hemiGround: '#4a6b60', hemi: 0.58, ambColor: '#cfe0ee', amb: 0.18 },
 ];
 
 const SKY_COLOR_KEYS = ['sky', 'horizon', 'skyTop', 'sunColor', 'hemiSky', 'hemiGround', 'ambColor'];
