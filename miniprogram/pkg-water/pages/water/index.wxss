@@ -87,7 +87,8 @@
   background: rgba(255, 255, 255, 0.98);
   border-radius: 28rpx 28rpx 0 0;
   box-shadow: 0 -8rpx 32rpx rgba(47, 143, 208, 0.18);
-  max-height: 56vh;
+  /* 展开时给画布留够空间：整屏减去顶栏(~8vh)后，画面还能占一半以上 */
+  max-height: 46vh;
   padding-bottom: env(safe-area-inset-bottom);
   display: flex;
   flex-direction: column;
@@ -104,7 +105,8 @@
 
 .panel-body {
   padding: 8rpx 32rpx 0;
-  max-height: 46vh;
+  /* scroll-view 要能滚必须给确定高度；固定值还能让切 tab 时面板不跳高 */
+  height: 34vh;
 }
 
 .ops {
