@@ -247,6 +247,47 @@ export class WaterPhysics {
   }
 }
 
+/**
+ * 只保留真正落在碰撞体内部的探针。
+ *
+ * 为什么要过滤：探针原本均匀撒在包围盒里，而球只占盒体积约 52%、圆柱约 78%，
+ * 那些落在物体外面、却仍在水面以下的点会被算进「浸没」，系统性高估浮力，
+ * 结果是物体浮得比真实位置高——密度 0.25 的球实测偏高约 0.25 m（球心 +0.17 而非 -0.09）。
+ * 密度越远离 0.5，误差越明显。
+ *
+ * @param pts     盒内均匀采样点（本地坐标）
+ * @param shape   对应的 cannon 碰撞体
+ * @param maxKeep 保留上限，控制每帧 heightAt 的调用次数
+ */
+export function filterProbesInside(pts, shape, maxKeep = 32) {
+  let inside;
+  try {
+    if (shape && typeof shape.pointIsInside === 'function') {
+      inside = pts.filter((p) => shape.pointIsInside(p));        // ConvexPolyhedron
+    } else if (shape && shape.halfExtents) {
+      const h = shape.halfExtents, e = 1e-6;                     // Box
+      inside = pts.filter((p) =>
+        Math.abs(p.x) <= h.x + e && Math.abs(p.y) <= h.y + e && Math.abs(p.z) <= h.z + e);
+    } else if (shape && shape.radius) {
+      inside = pts.filter((p) => p.length() <= shape.radius * 1.0001);   // Sphere
+    } else {
+      inside = pts;
+    }
+  } catch (e) {
+    inside = pts;               // 判定失败就退回原样，宁可不准也不能崩
+  }
+
+  if (!inside || inside.length < 8) return pts;   // 过滤太狠会放大离散误差，不如不滤
+
+  if (inside.length > maxKeep) {                  // 均匀抽稀，控制每帧开销
+    const step = inside.length / maxKeep;
+    const out = [];
+    for (let i = 0; i < maxKeep; i++) out.push(inside[Math.floor(i * step)]);
+    return out;
+  }
+  return inside;
+}
+
 export function makeProbes(box, n = 3) {
   // 在本地包围盒内均匀取 n^3 个采样点
   const pts = [];

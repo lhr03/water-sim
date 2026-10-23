@@ -6,7 +6,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-import { makeProbes } from './physics.js';
+import { makeProbes, filterProbesInside } from './physics.js';
 
 const PALETTE = ['#FFD966', '#A8DAF5', '#A5D6A7', '#FFAB91', '#CE93D8', '#F48FB1', '#90CAF9', '#FFF59D'];
 
@@ -229,7 +229,8 @@ export function buildFloatingTemplate(object, targetSize) {
     shape = new CANNON.Box(new CANNON.Vec3(bsize.x / 2, bsize.y / 2, bsize.z / 2));
   }
 
-  const probes = makeProbes(bb);
+  // 采样密一点再过滤到物体内部，最终约 32 个探针
+  const probes = filterProbesInside(makeProbes(bb, 4), shape);
   return {
     root,
     shape,
@@ -294,7 +295,7 @@ export function createPrimitive(type, targetSize = 1.2) {
     root,
     shape,
     volume,
-    probes: makeProbes(bb),
+    probes: filterProbesInside(makeProbes(bb, 4), shape),
     size,
     bounds: bb.getSize(new THREE.Vector3()),
   };
