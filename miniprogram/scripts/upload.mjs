@@ -55,34 +55,43 @@ const project = new ci.Project({
 
 console.log(`准备上传：${desc}（${appid}）`);
 
-const uploadResult = await ci.upload({
-  project,
-  version,
-  desc,
-  robot: args.robot || 1,
-  setting: {
-    es6: true,
-    enhance: true,
-    minified: true,
-    minifyJS: true,
-    minifyWXML: true,
-    minifyWXSS: true,
-    ignoreUploadUnusedFiles: true,
-    codeProtect: false,
-    autoPrefixWXSS: true,
-  },
-  onProgressUpdate: (task) => {
-    if (task && task._status === 'done') return;
-    process.stdout.write(`\r${task._msg || ''}`.padEnd(60));
-  },
-});
+try {
+  await ci.upload({
+    project,
+    version,
+    desc,
+    robot: args.robot || 1,
+    setting: {
+      es6: true,
+      enhance: true,
+      minified: true,
+      minifyJS: true,
+      minifyWXML: true,
+      minifyWXSS: true,
+      ignoreUploadUnusedFiles: true,
+      codeProtect: false,
+      autoPrefixWXSS: true,
+    },
+    onProgressUpdate: (task) => {
+      if (task && task._status === 'done') return;
+      process.stdout.write(`\r${task._msg || ''}`.padEnd(60));
+    },
+  });
+} catch (err) {
+  const msg = String((err && err.message) || err);
+  const ip = msg.match(/invalid ip:\s*([\d.]+)/);
+  console.log('');
+  if (ip) {
+    console.error(`\n✗ 被 IP 白名单拦住了，当前公网 IP：${ip[1]}`);
+    console.error('到 mp 后台 → 开发管理 → 开发设置 →「代码上传IP白名单」，');
+    console.error(`把 ${ip[1]} 加进去（或直接清空白名单表示不限制），保存后再跑一次。`);
+    console.error('注意：宽带重拨后 IP 会变，换了网络要重新加。\n');
+  } else {
+    console.error(`\n✗ 上传失败：${msg}\n`);
+  }
+  process.exit(1);
+}
 
 console.log('\n上传完成 ✓');
 console.log('下一步到 mp 后台「版本管理」把这一版设为体验版或提交审核：');
 console.log(`https://mp.weixin.qq.com/wxamp/version/list?appid=${appid}`);
-if (uploadResult && uploadResult.subPackageInfo) {
-  console.log('分包信息：', JSON.stringify(uploadResult.subPackageInfo));
-}
-if (uploadResult && uploadResult.pluginInfo) {
-  console.log('插件信息：', JSON.stringify(uploadResult.pluginInfo));
-}
