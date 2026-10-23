@@ -79,6 +79,15 @@
         </view>
       </view>
 
+      <!-- 菲涅尔反射开关：要先于「反射强度」滑块出现，否则滑块=开关的子项却排在前面 -->
+      <view wx:if="{{tab==='water'}}" class="row">
+        <view class="row-head">
+          <text class="lab">菲涅尔反射</text>
+          <text class="val">{{params.fresnelOn ? '开 · 平视处像镜面' : '关 · 纯水色'}}</text>
+        </view>
+        <switch checked="{{params.fresnelOn}}" bindchange="onFresnelToggle" color="#2f8fd0" />
+      </view>
+
       <!-- 滑块组 -->
       <block wx:if="{{tab!=='light' && tab!=='sound'}}">
         <view class="row" wx:for="{{sliders}}" wx:key="key" wx:if="{{item.group===tab}}">
@@ -119,7 +128,7 @@
       <block wx:if="{{tab==='light'}}">
         <view class="lamp" wx:for="{{params.lights}}" wx:for-index="li" wx:key="li">
           <view class="lamp-head">
-            <text class="lamp-title">灯光 {{li + 1}}</text>
+            <text class="lamp-title">石灯笼 {{li + 1}}</text>
             <switch checked="{{item.on}}" data-i="{{li}}" bindchange="onLampToggle" color="#2f8fd0" />
           </view>
           <view class="swatches">

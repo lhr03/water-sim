@@ -23,6 +23,7 @@ const SLIDERS = [
   { group: 'water', key: 'waterLevel', label: '水位', min: -0.6, max: 0.6, step: 0.01, unit: ' m' },
   { group: 'water', key: 'waterOpacity', label: '透明度', min: 0.2, max: 1, step: 0.01, unit: '' },
   { group: 'water', key: 'foamAmount', label: '浪尖白沫', min: 0, max: 1, step: 0.01, unit: '' },
+  { group: 'water', key: 'fresnelStrength', label: '反射强度', min: 0, max: 1, step: 0.01, unit: '' },
   // 物体
   { group: 'body', key: 'density', label: '密度', min: 0.15, max: 1.6, step: 0.01, unit: '' },
   { group: 'body', key: 'restitution', label: '弹性', min: 0, max: 1, step: 0.01, unit: '' },
@@ -33,8 +34,8 @@ const SLIDERS = [
 const LAMP_SLIDERS = [
   { key: 'intensity', label: '亮度', min: 0, max: 400, step: 5, unit: '' },
   { key: 'azimuth', label: '方位', min: 0, max: 360, step: 1, unit: '°' },
-  { key: 'radius', label: '距池心', min: 2, max: 18, step: 0.1, unit: ' m' },
-  { key: 'height', label: '高度', min: 0.2, max: 10, step: 0.1, unit: ' m' },
+  { key: 'outset', label: '离池边', min: 0, max: 2.4, step: 0.1, unit: ' m' },
+  { key: 'height', label: '灯芯高度', min: 0.6, max: 6, step: 0.1, unit: ' m' },
 ];
 
 const SOUND_SLIDERS = [
@@ -42,6 +43,7 @@ const SOUND_SLIDERS = [
   { key: 'waveVolume', label: '海浪', min: 0, max: 1, step: 0.01 },
   { key: 'windVolume', label: '风声', min: 0, max: 1, step: 0.01 },
   { key: 'impactVolume', label: '碰撞', min: 0, max: 1, step: 0.01 },
+  { key: 'quackVolume', label: '鸭叫', min: 0, max: 1, step: 0.01 },
 ];
 
 const QUALITY_NAME = { low: '流畅', mid: '均衡', high: '精细' };
@@ -234,7 +236,7 @@ Page({
     // 手动拖过滑块就不再算「某个预设」了，否则高亮会骗人
     this.setData({ [`params.${key}`]: v, preset: '' });
 
-    if (key === 'waterLevel' || key === 'waterOpacity' || key === 'foamAmount') {
+    if (key === 'waterLevel' || key === 'waterOpacity' || key === 'foamAmount' || key === 'fresnelStrength') {
       this.scene.refreshWater();
     } else if (key === 'density') {
       this.scene.applyDensity(v);
@@ -273,8 +275,15 @@ Page({
     this.scene.updateLights();
   },
 
-  onWaterColor(e) {
+  /** 菲涅尔反射开关 */
+  onFresnelToggle(e) {
     if (!this.scene) return;
+    const on = !!e.detail.value;
+    this.scene.setFresnel(on);
+    this.setData({ 'params.fresnelOn': on });
+  },
+
+  onWaterColor(e) {    if (!this.scene) return;
     const c = e.currentTarget.dataset.c;
     this.scene.params.waterColor = c;
     this.setData({ 'params.waterColor': c });

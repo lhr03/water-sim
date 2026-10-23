@@ -17,6 +17,34 @@ const QUALITY = {
 // 同屏物体上限。每个物体每帧要跑 32 次水面采样做浮力，40 个已经是这台机器的极限
 const MAX_OBJECTS = 40;
 
+/* 石灯笼的石材与熄灭时的灯芯颜色 */
+const STONE_ON = new THREE.Color(0x9e978a);
+const GLOW_OFF = new THREE.Color(0x3a3630);
+const _tmpColor = new THREE.Color();
+
+/**
+ * 石灯笼该站在哪儿。
+ *
+ * 直接按 (cos, sin) * radius 摆会出事：方位 165°、半径 10.5 时落点 x=-10.1、z=2.7，
+ * 落在水池正上方——一盏石灯悬在水面中央。
+ * 所以先沿方位找到池口外沿，再把 outset（离池边多远）往平台上加。
+ *
+ * @param outset 从池边外沿往平台外挪的米数（平台宽 4 米）
+ * @returns {{x:number, z:number}} 一定落在池壁外侧的平台上
+ */
+export function lanternSpot(azimuthDeg, outset = 0) {
+  const a = THREE.MathUtils.degToRad(azimuthDeg);
+  const dx = Math.cos(a), dz = Math.sin(a);
+  const hx = POOL.innerX / 2 + POOL.wallThickness + 0.55;
+  const hz = POOL.innerZ / 2 + POOL.wallThickness + 0.55;
+  const bound = Math.min(
+    Math.abs(dx) > 1e-4 ? hx / Math.abs(dx) : Infinity,
+    Math.abs(dz) > 1e-4 ? hz / Math.abs(dz) : Infinity,
+  );
+  const d = bound + Math.max(0, Math.min(outset, 2.4));
+  return { x: dx * d, z: dz * d };
+}
+
 /**
  * 3D 场景封装。页面只负责 UI，所有 three / 物理逻辑都在这里。
  */
@@ -51,8 +79,15 @@ export class WaterScene {
     this._initControls();
 
     this.audio = new AudioEngine(this.params);
-    this.physics.onImpact = (e) => this.audio.impact(e.strength, !e.wet);
-    this.physics.onSplash = (e) => this.audio.splash(e.strength);
+    this.physics.onImpact = (e) => {
+      // 鸭子：撞击 + 一声「嘎」。撞得越狠叫得越响、音调越高
+      this.audio.impact(e.strength, !e.wet);
+      if (e.quack) this.audio.quack(0.35 + 0.65 * e.strength, e.wet ? 1.0 : 1.14);
+    };
+    this.physics.onSplash = (e) => {
+      this.audio.splash(e.strength);
+      if (e.quack) this.audio.quack(0.45 + 0.55 * e.strength, 1.2);
+    };
   }
 
   /* ------------------------------ 初始化 ------------------------------ */
@@ -72,6 +107,9 @@ export class WaterScene {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = this.params.exposure;
     renderer.shadowMap.enabled = this.q.shadow;
+    // PCFSoft 才是边缘最平滑的一档。注意 three r133 的 PCF_SOFT 分支里
+    // 采样偏移写死成 1 个 texel，LightShadow.radius 对它无效——想真的加宽半影
+    // 只能换 PCFShadowMap（但 radius 大于 3 会出现 4 个分离的影子，反而更假）。
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer = renderer;
   }
@@ -108,39 +146,95 @@ export class WaterScene {
     dir.castShadow = this.q.shadow;
     if (this.q.shadow) {
       dir.shadow.mapSize.set(this.q.shadowMap, this.q.shadowMap);
-      dir.shadow.bias = -0.0006;
-      dir.shadow.normalBias = 0.035;
+      dir.shadow.bias = -0.0004;
+      // normalBias 稍大一点：石板是平的，太小的值会在接缝处出现自阴影条纹
+      dir.shadow.normalBias = 0.05;
       const sc = dir.shadow.camera;
-      sc.left = -20; sc.right = 20; sc.top = 20; sc.bottom = -20;
-      sc.near = 1; sc.far = 160;
+      sc.left = -22; sc.right = 22; sc.top = 22; sc.bottom = -22;
+      sc.near = 1; sc.far = 170;
     }
     this.scene.add(dir, dir.target);
     this.dirLight = dir;
 
-    this.scene.add(new THREE.HemisphereLight(0xcfe9ff, 0x2f5d7a, 0.45));
+    // 阴影软化靠「补光」而不是靠模糊：太阳被挡住的地方如果纯黑，边缘再软也显得硬。
+    // 半球光给天空/地面的漫反射，环境光再垫一点，阴影里就能看到石头的本色。
+    // 两者加起来别超过太阳的三分之一，否则整个场景会发灰、石头失去体积感。
+    this.scene.add(new THREE.HemisphereLight(0xd6ecff, 0x4a6b60, 0.58));
+    this.scene.add(new THREE.AmbientLight(0xcfe0ee, 0.18));
 
-    // 3 盏可控舞台灯
+    // 3 盏可控的日式石灯笼
     this.lampGroup = new THREE.Group();
+    this.stoneMat = new THREE.MeshStandardMaterial({
+      color: STONE_ON,
+      roughness: 0.94,
+      metalness: 0.0,
+      flatShading: true,     // 六角面要平着反光，才有“凿出来的石头”的感觉
+    });
     this.lamps = this.params.lights.map((_, i) => this._makeLamp(i));
     this.scene.add(this.lampGroup);
     this.updateSun();
     this.updateLights();
   }
 
+  /**
+   * 一盏日式石灯笼（石灯籠）。
+   * 分层自下而上：基础 → 竿 → 中台 → 火袋（灯室）→ 笠 → 宝珠。
+   * 火袋用 6 根细石柱围出一个空腔，里面放发光的内芯，光就是从柱缝里漏出来的。
+   */
   _makeLamp(i) {
     const p = this.params.lights[i];
+    const group = new THREE.Group();
+    group.name = `stoneLantern-${i}`;
+
+    const stone = this.stoneMat;
+    const part = (geo, y, cast = true) => {
+      const m = new THREE.Mesh(geo, stone);
+      m.position.y = y;
+      m.castShadow = cast && this.q.shadow;
+      m.receiveShadow = this.q.shadow;
+      group.add(m);
+      return m;
+    };
+
+    part(new THREE.CylinderGeometry(0.26, 0.36, 0.16, 6), 0.08);        // 基础
+    part(new THREE.CylinderGeometry(0.094, 0.11, 0.84, 6), 0.58);       // 竿
+    part(new THREE.CylinderGeometry(0.30, 0.19, 0.10, 6), 1.05);        // 中台
+    part(new THREE.CylinderGeometry(0.28, 0.28, 0.045, 6), 1.125, false); // 火袋底板
+
+    const postGeo = new THREE.BoxGeometry(0.07, 0.40, 0.07);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      const post = new THREE.Mesh(postGeo, stone);
+      post.position.set(Math.cos(a) * 0.235, 1.34, Math.sin(a) * 0.235);
+      post.rotation.y = -a;
+      post.castShadow = false;   // 6 根细柱子不进退影 pass，省一次绘制
+      group.add(post);
+    }
+
+    const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(p.color) });
+    const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 0.40, 6), glowMat);
+    glow.position.y = 1.34;
+    group.add(glow);
+
+    // 灯周围一圈加法混合的雾光，手机上比后期 bloom 便宜得多
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(p.color),
+      transparent: true,
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), haloMat);
+    halo.position.y = 1.34;
+    halo.renderOrder = 3;
+    group.add(halo);
+
+    part(new THREE.CylinderGeometry(0.60, 0.33, 0.24, 6), 1.72);   // 笠
+    part(new THREE.SphereGeometry(0.085, 10, 8), 1.90, false);     // 宝珠
+
     const light = new THREE.PointLight(new THREE.Color(p.color), p.on ? p.intensity : 0, 60, 2);
-    // 可见灯泡
-    const bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 12, 10),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(p.color) }),
-    );
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.045, 0.055, 1, 8),
-      new THREE.MeshStandardMaterial({ color: 0x51606b, roughness: 0.6, metalness: 0.3 }),
-    );
-    this.lampGroup.add(light, bulb, pole);
-    return { light, bulb, pole };
+    this.lampGroup.add(group, light);
+    return { group, light, glow, halo };
   }
 
   _initControls() {
@@ -237,8 +331,10 @@ export class WaterScene {
 
   /** 「推一把」：给所有漂浮物一个随机冲量，像有人踹了一脚泳池 */
   kick(dv = 2.2) {
-    this.physics.kick(dv);
     if (this.audio) this.audio.splash(0.7);
+    this.physics.kick(dv);
+    // 被踹了一脚的鸭子会叫，虽然还没撞到东西
+    if (this.objects.some((o) => o.quack)) this.audio.quack(0.85, 1.05);
   }
 
   _tryGrab(e) {
@@ -247,7 +343,14 @@ export class WaterScene {
     let o = hit.object;
     while (o && !o.userData.bodyIndex && o.parent) o = o.parent;
     const ent = o && this.objects[o.userData.bodyIndex];
-    if (ent) this._grab = { ent, plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.params.waterLevel - 0.4) };
+    if (ent) {
+      this._grab = { ent, plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.params.waterLevel - 0.4) };
+      // 捏起来也叫一声，像真的抓了只鸭子
+      if (this.audio) {
+        if (ent.quack) this.audio.quack(0.6, 1.1);
+        else this.audio.impact(0.15, false);
+      }
+    }
   }
 
   _moveGrab(e) {
@@ -297,6 +400,7 @@ export class WaterScene {
       mesh,
       seed: Math.random() * 10,
       upright: tpl.upright,
+      quack: tpl.quack,
     });
     ent.mesh = mesh;
     this.objects.push(ent);
@@ -334,23 +438,28 @@ export class WaterScene {
     const elev = Math.max(0, Math.sin(el));
     this.dirLight.intensity = 0.7 + 2.4 * elev;
     this.dirLight.color.setHSL(0.09, 0.35 * (1 - elev * 0.6) + 0.08, 0.62 + 0.18 * elev);
+    // 水面上的碎光要跟着太阳走，否则太阳挪了、反光还停在原处
+    if (this.water) this.water.setSun(dir);
   }
 
   updateLights() {
+    const deckY = POOL.wallHeight;
     this.params.lights.forEach((p, i) => {
       const L = this.lamps[i];
       if (!L) return;
-      const a = THREE.MathUtils.degToRad(p.azimuth);
-      const x = Math.cos(a) * p.radius;
-      const z = Math.sin(a) * p.radius;
+      const spot = lanternSpot(p.azimuth, p.outset);
+      // 高度滑块指的是「火袋离地多高」，整盏灯按比例缩放，灯室才会正好对上光点
+      const s = THREE.MathUtils.clamp((p.height - deckY) / 1.34, 0.45, 2.4);
+      L.group.position.set(spot.x, deckY, spot.z);
+      L.group.scale.setScalar(s);
+      L.group.rotation.y = -THREE.MathUtils.degToRad(p.azimuth);
       L.light.color.set(p.color);
       L.light.intensity = p.on ? p.intensity : 0;
-      L.light.position.set(x, p.height, z);
-      L.bulb.material.color.set(p.color);
-      L.bulb.material.opacity = p.on ? 1 : 0.25;
-      L.bulb.position.set(x, p.height, z);
-      L.pole.position.set(x, p.height - 0.5, z);
-      L.pole.scale.y = Math.max(0.2, p.height);
+      L.light.position.set(spot.x, deckY + 1.34 * s, spot.z);
+      _tmpColor.set(p.color);
+      L.glow.material.color.copy(p.on ? _tmpColor : GLOW_OFF);
+      L.halo.material.color.copy(_tmpColor);
+      L.halo.material.opacity = p.on ? 0.16 : 0;
     });
   }
 
@@ -370,8 +479,15 @@ export class WaterScene {
 
   /** 水体外观变了 */
   refreshWater() {
+    this.water.setFresnel(this.params.fresnelOn !== false, this.params.fresnelStrength);
     this.water.refresh();
     this.physics.wakeAll();
+  }
+
+  /** 菲涅尔反射开关 / 强度 */
+  setFresnel(on) {
+    this.params.fresnelOn = !!on;
+    this.water.setFresnel(!!on, this.params.fresnelStrength);
   }
 
   refreshPhysics() { this.physics.refresh(); }
@@ -425,6 +541,7 @@ export class WaterScene {
 
     if (!this.params.paused) {
       this.waveField.update(dt);
+      this.water.tick(dt);
       this.physics.step(dt);
       for (const e of this.objects) {
         if (e.mesh) {
@@ -443,6 +560,15 @@ export class WaterScene {
     this.clearObjects();
     this.audio.dispose();
     this.controls.dispose && this.controls.dispose();
+    // 石灯笼：石材是 3 盏共用的，只释放一次
+    if (this.lampGroup) {
+      this.lampGroup.traverse((o) => {
+        if (!o.isMesh) return;
+        o.geometry && o.geometry.dispose();
+        if (o.material && o.material !== this.stoneMat) o.material.dispose();
+      });
+      this.stoneMat && this.stoneMat.dispose();
+    }
     this.water.dispose && this.water.dispose();
     this.pool.dispose && this.pool.dispose();
     this.renderer.dispose();

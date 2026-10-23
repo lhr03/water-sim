@@ -18,6 +18,8 @@ export const params = {
   waterOpacity: 0.80,
   waterRoughness: 0.07,
   foamAmount: 0.55,       // 浪尖白沫
+  fresnelOn: true,        // 菲涅尔反射开关
+  fresnelStrength: 1.0,   // 反射强度 0-1
 
   // ---- 物体 ----
   density: 0.45,          // 物体密度（相对水，1.0 = 与水同重）
@@ -36,11 +38,12 @@ export const params = {
   bloom: true,
   bloomStrength: 0.22,
 
-  // ---- 3 盏可控制的舞台灯 ----
+  // ---- 3 盏可控制的日式石灯笼 ----
+  // outset = 从池边往外挪多远（平台宽 4 米，所以上限 2.4）
   lights: [
-    { on: true, color: '#ffb066', intensity: 90, azimuth: 45, radius: 10.5, height: 2.8, shadows: false },
-    { on: true, color: '#5ec8ff', intensity: 90, azimuth: 165, radius: 10.5, height: 2.8, shadows: false },
-    { on: true, color: '#ff6ec7', intensity: 80, azimuth: 290, radius: 9.0, height: 3.4, shadows: false },
+    { on: true, color: '#ffb066', intensity: 90, azimuth: 45, outset: 0.9, height: 2.8, shadows: false },
+    { on: true, color: '#5ec8ff', intensity: 90, azimuth: 165, outset: 0.6, height: 2.8, shadows: false },
+    { on: true, color: '#ff6ec7', intensity: 80, azimuth: 290, outset: 1.2, height: 3.4, shadows: false },
   ],
 
   // ---- 声音 ----
@@ -49,6 +52,7 @@ export const params = {
   waveVolume: 0.65,
   windVolume: 0.35,
   impactVolume: 0.8,
+  quackVolume: 0.9,       // 小黄鸭叫
 
   // ---- 运行 ----
   paused: false,

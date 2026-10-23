@@ -1,6 +1,15 @@
 import * as THREE from '../lib/build/three.module.js';
 import { POOL } from './config.js';
 
+function setUVRepeat(tex, repeatX, repeatZ) {
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatZ);
+  // three 0.133 用 encoding（0.152+ 才改叫 colorSpace）
+  if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
+  tex.anisotropy = 2;
+  return tex;
+}
+
 /**
  * 程序化生成泳池瓷砖纹理。
  * 小程序没有 document，用离屏 canvas 画；尺寸压到 256（微信纹理上限 2048）。
@@ -23,14 +32,91 @@ function makeTileTexture(repeatX = 1, repeatZ = 1, base = '#bfe4f5', grout = '#5
       g.fillRect(i * s + 2, j * s + 2, s - 4, 3);
     }
   }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(repeatX, repeatZ);
-  // three 0.133 用 encoding（0.152+ 才改叫 colorSpace）
-  if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
-  tex.anisotropy = 2;
-  return tex;
+  return setUVRepeat(new THREE.CanvasTexture(c), repeatX, repeatZ);
 }
+
+/** 圆角矩形路径。微信的 2d 上下文不一定有 roundRect，自己拼一遍最保险 */
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  if (typeof g.arcTo === 'function') {
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  } else {
+    g.rect(x, y, w, h);
+  }
+}
+
+/**
+ * 程序化石板纹理（池边平台用）。
+ *
+ * 为什么不用瓷砖那张：瓷砖是规整网格 + 高光边，铺在池边像浴室地面，
+ * 跟「日本庭院」的气质完全不对。石板要的是：缝宽不一、每块色差、表面有石粒噪点。
+ * 纹理必须能无缝平铺，所以石板按等宽等高的网格切，只把边角做圆、色差做随机。
+ */
+function makeStoneTexture(repeatX = 1, repeatZ = 1, base = '#cfc7b8', joint = '#7b7466') {
+  const S = 512;
+  const c = wx.createOffscreenCanvas({ type: '2d', width: S, height: S });
+  const g = c.getContext('2d');
+
+  g.fillStyle = joint;          // 先铺缝的颜色，石板压在上面，缝就露出来了
+  g.fillRect(0, 0, S, S);
+
+  const rows = 3, cols = 3;
+  const cw = S / cols, ch = S / rows;
+  const baseCol = new THREE.Color(base);
+
+  for (let r = 0; r < rows; r++) {
+    for (let k = 0; k < cols; k++) {
+      const pad = 3;
+      const x = k * cw + pad, y = r * ch + pad;
+      const w = cw - pad * 2, h = ch - pad * 2;
+
+      // 每块石头单独的色差，随机偏暖或偏冷
+      const tone = 0.86 + Math.random() * 0.20;
+      const col = baseCol.clone().multiplyScalar(tone);
+      if (Math.random() > 0.5) col.offsetHSL(0.01, 0.02, 0);
+      g.fillStyle = `#${col.getHexString()}`;
+      roundRect(g, x, y, w, h, 9);
+      g.fill();
+
+      // 倒角：上缘提亮、下缘压暗，石板才有厚度，不然是贴纸
+      g.fillStyle = 'rgba(255,255,255,0.16)';
+      g.fillRect(x + 8, y + 2, w - 16, 3);
+      g.fillStyle = 'rgba(52,44,36,0.22)';
+      g.fillRect(x + 8, y + h - 7, w - 16, 4);
+
+      // 石面上深浅不一的斑（水渍 / 矿物痕），比纯色更像石头
+      for (let n = 0; n < 20; n++) {
+        const px = x + Math.random() * w;
+        const py = y + Math.random() * h;
+        const rad = 6 + Math.random() * 26;
+        g.fillStyle = Math.random() > 0.5
+          ? `rgba(255,255,255,${0.02 + Math.random() * 0.035})`
+          : `rgba(72,62,50,${0.02 + Math.random() * 0.045})`;
+        g.beginPath();
+        g.arc(px, py, rad, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  }
+
+  // 石粒噪点：远看是颗粒感，近看不会糊成一片
+  for (let i = 0; i < 3600; i++) {
+    const x = Math.random() * S, y = Math.random() * S;
+    const a = Math.random();
+    g.fillStyle = a > 0.5
+      ? `rgba(255,255,255,${0.04 + a * 0.05})`
+      : `rgba(60,52,44,${0.03 + a * 0.05})`;
+    g.fillRect(x, y, 1, 1);
+  }
+
+  return setUVRepeat(new THREE.CanvasTexture(c), repeatX, repeatZ);
+}
+
 
 export function createPool(scene, quality = 'mid') {
   const { innerX, innerZ, depth, wallThickness: wt, wallHeight: wh } = POOL;
@@ -86,12 +172,35 @@ export function createPool(scene, quality = 'mid') {
   const deckGeo = new THREE.ShapeGeometry(shape);
   deckGeo.rotateX(-Math.PI / 2);
   // ShapeGeometry 的 UV 直接用顶点坐标（单位：米），所以 repeat 取 0.5，即每 2 米一次纹理
-  const deckTex = makeTileTexture(0.5, 0.5, '#e8eaed', '#b9bec4');
-  const deckMat = new THREE.MeshStandardMaterial({ map: deckTex, roughness: 0.85, metalness: 0.0 });
+  const deckTex = makeStoneTexture(0.5, 0.5, '#cfc7b8', '#7b7466');
+  const deckMat = new THREE.MeshStandardMaterial({ map: deckTex, roughness: 0.94, metalness: 0.0 });
   const deck = new THREE.Mesh(deckGeo, deckMat);
   deck.position.y = wh;
   deck.receiveShadow = quality !== 'low';
   deck.userData.pickable = 'deck';
+
+  // 池壁压顶石：沿池口围一圈，比平台略高一点点。
+  // 有了这道凸起的石边，水面的边线才有"池子"的实感；没有它，水像是浮在地砖上。
+  // BoxGeometry 每个面都是 0~1 的 UV，所以压顶这种细长条要把 repeat 拉长（9:0.5），
+  // 否则一块石板会有 3 米长。
+  const copTex = makeStoneTexture(9, 0.5, '#d9d2c5', '#8a8378');
+  const copMat = new THREE.MeshStandardMaterial({ map: copTex, roughness: 0.82, metalness: 0.0 });
+  const copH = 0.14;
+  const copW = wt + 0.26;
+  const mkCop = (w, d, x, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, copH, d), copMat);
+    m.position.set(x, wh + copH / 2, z);
+    m.castShadow = quality !== 'low';
+    m.receiveShadow = quality !== 'low';
+    m.userData.pickable = 'deck';
+    return m;
+  };
+  group.add(
+    mkCop(innerX + wt * 2 + 0.52, copW, 0, innerZ / 2 + wt / 2),
+    mkCop(innerX + wt * 2 + 0.52, copW, 0, -innerZ / 2 - wt / 2),
+    mkCop(copW, innerZ + 0.52, innerX / 2 + wt / 2, 0),
+    mkCop(copW, innerZ + 0.52, -innerX / 2 - wt / 2, 0),
+  );
 
   group.add(floor, deck);
   scene.add(group);
@@ -115,8 +224,8 @@ export function createPool(scene, quality = 'mid') {
     group,
     colliders,
     dispose() {
-      [floorTex, wallTex, wallTexSide, deckTex].forEach((t) => t && t.dispose());
-      [floorMat, wallMat, wallMatSide, deckMat].forEach((m) => m && m.dispose());
+      [floorTex, wallTex, wallTexSide, deckTex, copTex].forEach((t) => t && t.dispose());
+      [floorMat, wallMat, wallMatSide, deckMat, copMat].forEach((m) => m && m.dispose());
       group.traverse((o) => { if (o.isMesh && o.geometry) o.geometry.dispose(); });
       scene.remove(group);
     },

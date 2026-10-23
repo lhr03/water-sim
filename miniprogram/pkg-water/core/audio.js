@@ -4,6 +4,7 @@
  *  - 风声：噪声 → 带通，随风力变化
  *  - 碰撞：噪声脉冲 + 低频“咚”，按撞击强度决定音量与音色
  *  - 入水：带通扫频噪声（水花）
+ *  - 鸭叫：锯齿波快速下滑 + 带通共鸣，两声「嘎-啊克」
  *
  * 注意：小程序 WebAudio 的支持面比浏览器窄，所以每个节点的创建都做了容错，
  * 拿不到就直接跳过该效果，绝不让整条音频链崩掉。
@@ -181,6 +182,84 @@ export class AudioEngine {
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
     safe(() => g.connect(this.master));
     safe(() => { src.start(t); src.stop(t + 0.6); });
+  }
+
+  /**
+   * 小黄鸭「嘎」。
+   *
+   * 合成思路：鸭子叫的本质是一个带大量谐波的锯齿波，基频在 50ms 内快速下滑，
+   * 再过一层 1kHz 左右的带通做出「鼻腔」共鸣，最后叠一声极短的噪声当气流。
+   * 两声连在一起（嘎-啊克），单声听起来像电子音，两声才像鸭子。
+   *
+   * @param strength 0-1，撞得越狠越响
+   * @param pitch    音调倍率，1 = 成年鸭，1.2 = 受惊的小鸭
+   */
+  quack(strength = 0.8, pitch = 1) {
+    if (!this.ready || !this.params.soundOn) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime || 0;
+    // 一群鸭同时撞墙会变成机关枪，这里限一个最小间隔
+    if (now - (this._lastQuack === undefined ? -9 : this._lastQuack) < 0.22) return;
+    this._lastQuack = now;
+
+    const vol = (this.params.quackVolume === undefined ? 0.9 : this.params.quackVolume)
+      * Math.max(0.15, Math.min(1, strength));
+    if (vol <= 0.002) return;
+
+    const osc = safe(() => ctx.createOscillator());
+    const g = safe(() => ctx.createGain());
+    if (!osc || !g) return;
+
+    const t = now + 0.01;
+    const f0 = 560 * pitch * (0.92 + Math.random() * 0.16);
+
+    safe(() => {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(f0, t);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.62, t + 0.055);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.86, t + 0.100);  // 第二声翘起来
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.50, t + 0.190);
+    });
+
+    const bp = safe(() => ctx.createBiquadFilter());
+    if (bp) {
+      bp.type = 'bandpass';
+      bp.frequency.value = 1150 * pitch;
+      bp.Q.value = 2.4;
+      safe(() => { osc.connect(bp); bp.connect(g); });
+    } else {
+      this.degraded.push('quackFilter');
+      safe(() => osc.connect(g));
+    }
+
+    safe(() => {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.55 * vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.10 * vol, t + 0.062);  // 第一声收尾
+      g.gain.linearRampToValueAtTime(0.45 * vol, t + 0.095);       // 第二声起
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.210);
+    });
+
+    safe(() => g.connect(this.master));
+    safe(() => { osc.start(t); osc.stop(t + 0.30); });
+
+    // 气流噪声：一层很短的「沙」，没有它声音会明显是纯振荡器
+    const nSrc = safe(() => ctx.createBufferSource());
+    if (nSrc && this.noise) {
+      const nb = safe(() => ctx.createBiquadFilter());
+      const ng = safe(() => ctx.createGain());
+      if (nb && ng) {
+        nSrc.buffer = this.noise;
+        nSrc.playbackRate.value = 1.6;
+        nb.type = 'highpass';
+        nb.frequency.value = 1400;
+        ng.gain.setValueAtTime(0.0001, t);
+        ng.gain.linearRampToValueAtTime(0.12 * vol, t + 0.015);
+        ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.130);
+        safe(() => { nSrc.connect(nb); nb.connect(ng); ng.connect(this.master); });
+        safe(() => { nSrc.start(t); nSrc.stop(t + 0.20); });
+      }
+    }
   }
 
   markDirty() { this.applyVolumes(); }

@@ -5,9 +5,9 @@
   </view>
 
   <view class="card desc">
-    <view class="row">泳池里的水会起风浪，丢进去的模型会真的浮起来、互相撞</view>
-    <view class="row">内置小黄鸭、木箱、救生圈等 9 种物体，点水面就丢</view>
-    <view class="row">风向、风力、浪高、波长都能实时调</view>
+    <view class="row">泳池里的水会起风浪，丢进去的物体真的会浮起来、互相撞</view>
+    <view class="row">内置小黄鸭、木箱、救生圈等 9 种物体，点水面就丢；小黄鸭撞到会「嘎」一声</view>
+    <view class="row">风向、风力、浪高、波长都能实时调，三盏石灯笼可以改色改亮度</view>
   </view>
 
   <view class="card notice">

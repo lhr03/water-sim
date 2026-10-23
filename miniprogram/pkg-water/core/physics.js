@@ -87,6 +87,7 @@ export class WaterPhysics {
       lastRatio: 0,
       prevRatio: 0,
       wet: false,
+      quack: !!o.quack,
     };
     body.userData.ref = entry;
     this.bodies.push(entry);
@@ -95,7 +96,9 @@ export class WaterPhysics {
     body.addEventListener('collide', (e) => {
       const contact = e.contact;
       const rel = contact ? Math.abs(contact.getImpactVelocityAlongNormal()) : 0;
-      if (rel < 0.55) return;
+      // 阈值分两档：普通物体 0.55（随浪轻碰不该响），会叫的鸭子 0.30
+      // （鸭子太轻，跟池壁碰一下的相对速度本来就不大，用 0.55 会几乎叫不出来）
+      if (rel < (entry.quack ? 0.30 : 0.55)) return;
       const now = self.time;
       if (now - body.userData.lastSound < 0.07) return;
       body.userData.lastSound = now;
@@ -106,6 +109,7 @@ export class WaterPhysics {
         strength: Math.min(1, rel / 6.5),
         pool,
         wet: entry.lastRatio > 0.3,
+        quack: entry.quack,
         x: body.position.x,
         y: body.position.y,
         z: body.position.z,
@@ -197,6 +201,7 @@ export class WaterPhysics {
           this.onSplash({
             strength: Math.min(1, (speed * 0.25 + 0.25) * Math.min(1, e.volume / 0.15 + 0.35)),
             x: body.position.x, z: body.position.z,
+            quack: e.quack,
           });
         }
       } else if (e.wet && ratio < 0.02) {

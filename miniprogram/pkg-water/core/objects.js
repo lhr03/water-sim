@@ -162,6 +162,7 @@ export function createPrimitive(type, targetSize = 1.2) {
     size: Math.max(bounds.x, bounds.y, bounds.z),
     bounds,
     upright,
+    quack: type === 'duck',   // 会叫的物体：碰撞、入水、被拎起来时出声
   };
 }
 
