@@ -310,5 +310,73 @@ ok(moved === physics.bodies.length,
     `小黄鸭浮在 ${e3.body.position.y.toFixed(3)}（水面附近）`);
 }
 
+// 性能兜底：手机最坑的不是「一直慢」，而是玩两分钟以后发热降频。
+// 这里只喂假的 delta，验证判定逻辑和退档顺序（真实帧率得真机测）。
+{
+  const { WaterScene } = await import('../pkg-water/core/scene.js');
+  const P = WaterScene.prototype;
+  const mk = () => {
+    const events = [];
+    const f = {
+      params: { paused: false },
+      q: { pixelRatio: 1.5, shadow: true },
+      dpr: 2,
+      maxObjects: 40,
+      objects: Array.from({ length: 30 }, () => ({})),
+      renderer: { ratio: 1.5, shadowMap: { enabled: true }, setPixelRatio(v) { this.ratio = v; } },
+      dirLight: { castShadow: true, shadow: { map: null } },
+      scene: { traverse() {} },
+      onEvent: (e) => events.push(e),
+      perf: { t: 0, frames: 0, fps: 60, windows: 0, low: 0, warmup: 0, cool: 0, step: 0 },
+      events,
+    };
+    f._removeOldest = function () { this.objects.shift(); };
+    f._applyShadowEnabled = P._applyShadowEnabled;
+    f._downgrade = P._downgrade;
+    return f;
+  };
+  const feed = (f, fps, seconds) => {
+    const per = 1 / fps;
+    for (let t = 0; t < seconds; t += per) P._trackPerf.call(f, per);
+  };
+
+  // 预热期：着色器编译 + 纹理上传本来就会掉帧，不能当成性能问题
+  const f1 = mk();
+  f1.perf.warmup = 3;
+  feed(f1, 8, 2.5);
+  ok(f1.q.pixelRatio === 1.5 && f1.events.length === 0, '预热期内不降档');
+
+  // 一直流畅就别乱动
+  const f3 = mk();
+  feed(f3, 60, 20);
+  ok(f3.events.length === 0 && f3.q.pixelRatio === 1.5, '帧率正常时不动任何设置');
+
+  // 持续 10 fps：先降分辨率 → 再关阴影 → 最后减物体
+  const f2 = mk();
+  feed(f2, 10, 6);
+  ok(f2.q.pixelRatio === 1.0 && f2.renderer.ratio === 1.0 && f2.events.length === 1,
+    `帧率不足时先降分辨率：${f2.events.map((e) => e.note).join(' → ') || '没有任何动作'}`);
+  feed(f2, 10, 12);
+  ok(f2.q.shadow === false, '降完分辨率仍然慢，就关阴影');
+  feed(f2, 10, 12);
+  ok(f2.maxObjects === 24 && f2.objects.length === 24,
+    `再不够才减物体：上限 ${f2.maxObjects}、实际裁到 ${f2.objects.length}`);
+  const steps = f2.events.map((e) => e.note);
+  ok(steps.join('|') === '已降分辨率|已关阴影|已减少物体',
+    `退档顺序正确：${steps.join(' → ')}`);
+
+  // 到底了就收手，别每三秒刷一次提示
+  const before = f2.events.length;
+  feed(f2, 10, 60);
+  ok(f2.events.length === before, '退到底后不再重复降档');
+
+  // 统计必须用未钳制的真实 delta。以前 dt 被钳到 1/20，
+  // 一台跑 5 fps 的机器会被算成 20 fps，永远触发不了降档。
+  const src = (await import('node:fs')).readFileSync(
+    new URL('../pkg-water/core/scene.js', import.meta.url), 'utf8');
+  ok(/_trackPerf\(rawDt\)/.test(src) && /const dt = Math\.min\(rawDt, 1 \/ 20\)/.test(src),
+    '帧率统计用的是钳制前的真实 delta');
+}
+
 console.log(fail === 0 ? '\n全部通过 ✓' : `\n失败 ${fail} 项 ✘`);
 process.exit(fail === 0 ? 0 : 1);

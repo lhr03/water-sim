@@ -66,7 +66,10 @@ export class WaterScene {
     this.viewH = Math.max(1, Math.floor(height || canvas.height || 1));
     this.dpr = Math.min(dpr || 2, 2);
     this.quality = QUALITY[quality] ? quality : 'mid';
-    this.q = QUALITY[this.quality];
+    // 拷一份：自动降档会就地改 pixelRatio / shadow，直接引用会污染共享的质量表
+    this.q = { ...QUALITY[this.quality] };
+    // 同屏上限也要能降（不是常量：降到「流畅」档时会收到 24）
+    this.maxObjects = MAX_OBJECTS;
     this.onEvent = onEvent || (() => {});
     this.params = JSON.parse(JSON.stringify(defaultParams));
     this.objects = [];
@@ -75,6 +78,8 @@ export class WaterScene {
     this.running = false;
     this._grab = null;
     this._lastT = 0;
+    this.perf = null;            // 帧率监视，start() 时才建
+    this._perfNote = '';
 
     this.platform = new WechatPlatform(canvas);
     THREE.PLATFORM.set(this.platform);
@@ -424,7 +429,7 @@ export class WaterScene {
   /** @param type 'ball' | 'duck' | ... | 'random' */
   spawn(type, x, z) {
     // 连点很爽，但物体无限堆会掉帧：满了就把最早的捞走
-    if (this.objects.length >= MAX_OBJECTS) this._removeOldest();
+    if (this.objects.length >= this.maxObjects) this._removeOldest();
     const t = type === 'random' || type === undefined
       ? PRIMITIVE_TYPES[Math.floor(Math.random() * PRIMITIVE_TYPES.length)].id
       : type;
@@ -552,8 +557,9 @@ export class WaterScene {
   setExposure(v) { this.renderer.toneMappingExposure = v; }
 
   setShadows(on) {
-    this.renderer.shadowMap.enabled = on && this.q.shadow;
-    this.dirLight.castShadow = on && this.q.shadow;
+    // 手动打开视为「我知道我在做什么」，覆盖自动降档的结果；关掉就照办
+    if (on) this.q.shadow = QUALITY[this.quality].shadow;
+    this._applyShadowEnabled(!!on && this.q.shadow);
   }
 
   /**
@@ -578,6 +584,18 @@ export class WaterScene {
     if (this.running) return;
     this.running = true;
     this._lastT = Date.now();
+    if (!this.perf) {
+      this.perf = {
+        t: 0,          // 当前统计窗口累计的真实秒数
+        frames: 0,
+        fps: 60,       // 平滑后的帧率
+        windows: 0,    // 已经结算过几个窗口
+        low: 0,        // 连续几个窗口低于阈值
+        warmup: 3.0,   // 预热：着色器编译 / 纹理上传会掉帧，这几秒不判定
+        cool: 0,       // 降档后的观察期，避免一口气降到底
+        step: 0,       // 已经降了几档
+      };
+    }
     const loop = () => {
       if (!this.running) return;
       this._frame();
@@ -590,9 +608,9 @@ export class WaterScene {
 
   _frame() {
     const now = Date.now();
-    let dt = (now - this._lastT) / 1000;
+    const rawDt = (now - this._lastT) / 1000;
     this._lastT = now;
-    dt = Math.min(dt, 1 / 20);      // 掉帧时钳制，避免物理炸开
+    const dt = Math.min(rawDt, 1 / 20);   // 掉帧时钳制，避免物理炸开
 
     if (!this.params.paused) {
       this.waveField.update(dt);
@@ -608,6 +626,92 @@ export class WaterScene {
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+    // 帧率统计必须用未钳制的 rawDt：dt 被钳到 1/20 后，5 fps 的机器会算成 20 fps
+    this._trackPerf(rawDt);
+  }
+
+  /* ---------------------------- 性能兜底 ---------------------------- */
+
+  /**
+   * 手机最容易出问题的不是「一直慢」，而是玩两分钟以后发热降频——同一份代码，
+   * 前面 60 fps 后面 20 fps。所以不按机型猜，直接看真实帧率，低了就退档。
+   *
+   * 退的顺序有讲究：先降分辨率（最有效、最不容易看出来），再关阴影，
+   * 最后才减同屏物体（会丢东西，观感损失最大）。
+   */
+  _trackPerf(rawDt) {
+    const p = this.perf;
+    if (!p || this.params.paused) return;
+    if (p.warmup > 0) { p.warmup -= rawDt; return; }
+    if (p.cool > 0) { p.cool -= rawDt; return; }
+
+    p.t += rawDt;
+    p.frames++;
+    if (p.t < 1.5) return;
+
+    const fps = p.frames / p.t;
+    // 第一个窗口直接用实测值，别拿 60 去平滑：EMA 从 60 起跳要三个窗口才能跌到阈值下，
+    // 真卡的时候等于白等 4 秒。之后再用 EMA 抹平单次抖动。
+    p.fps = p.windows ? p.fps * 0.55 + fps * 0.45 : fps;
+    p.windows = (p.windows || 0) + 1;
+    p.t = 0;
+    p.frames = 0;
+
+    if (p.fps < 24) {
+      if (++p.low >= 2) this._downgrade();   // 连续两个窗口都慢才动手
+    } else {
+      p.low = 0;
+    }
+  }
+
+  _downgrade() {
+    const p = this.perf;
+    let note = '';
+    if (this.q.pixelRatio > 1.01) {
+      this.q.pixelRatio = 1.0;
+      this.renderer.setPixelRatio(Math.min(1.0, this.dpr, 2));
+      note = '已降分辨率';
+    } else if (this.q.shadow) {
+      this.q.shadow = false;
+      this._applyShadowEnabled(false);
+      note = '已关阴影';
+    } else if (this.maxObjects > 24) {
+      this.maxObjects = 24;
+      while (this.objects.length > this.maxObjects) this._removeOldest();
+      note = '已减少物体';
+    } else {
+      // 已经退到底了：拉长冷却，别再每三秒弹一次
+      p.cool = 30;
+      p.low = 0;
+      return;
+    }
+    p.step++;
+    p.low = 0;
+    p.cool = 5;
+    this._perfNote = note;
+    this.onEvent({ type: 'perf', note, fps: Math.round(p.fps), step: p.step });
+  }
+
+  /**
+   * 开关阴影。
+   * shadowMap.enabled 参与材质编译（USE_SHADOWMAP 宏），光改这个开关不重编译不生效，
+   * 所以要把场景里的材质逐个标记重编译——一次性开销，几十毫秒。
+   */
+  _applyShadowEnabled(on) {
+    this.renderer.shadowMap.enabled = on;
+    if (this.dirLight) {
+      this.dirLight.castShadow = on;
+      // 关掉后把深度图也还回去，不然这张贴图一直占着显存
+      if (!on && this.dirLight.shadow && this.dirLight.shadow.map) {
+        this.dirLight.shadow.map.dispose();
+        this.dirLight.shadow.map = null;
+      }
+    }
+    this.scene.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const list = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of list) m.needsUpdate = true;
+    });
   }
 
   dispose() {

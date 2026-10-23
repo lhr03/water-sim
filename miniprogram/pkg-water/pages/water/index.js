@@ -83,6 +83,7 @@ Page({
     mode: 'drop',
     count: 0,
     qualityName: '均衡',
+    perfNote: '',
     tabs: TABS,
     sliders: SLIDERS,
     lampSliders: LAMP_SLIDERS,
@@ -125,7 +126,7 @@ Page({
             height: r.height,
             dpr,
             quality: this.quality,
-            onEvent: () => this.setData({ count: this.scene.count }),
+            onEvent: (e) => this._onSceneEvent(e),
           });
           // 初始丢几个物体，一进来就能看到互撞
           for (let i = 0; i < 5; i++) this.scene.spawn('random');
@@ -145,6 +146,28 @@ Page({
 
   onUnload() {
     if (this.scene) { this.scene.dispose(); this.scene = null; }
+  },
+
+  /**
+   * 场景事件。目前两类：
+   *  - spawned：物体数变了，刷新顶栏计数
+   *  - perf：帧率撑不住，场景自动降了一档，告诉用户为什么画面变糊了
+   */
+  _onSceneEvent(e) {
+    if (e && e.type === 'perf') {
+      this.setData({ perfNote: e.note, qualityName: '自动适配' });
+      // 只提示一次：降完还可能再降，反复弹提示比画面糊更烦人
+      if (!this._perfToastShown) {
+        this._perfToastShown = true;
+        wx.showToast({
+          title: `画面有点吃力，${e.note}`,
+          icon: 'none',
+          duration: 2400,
+        });
+      }
+      return;
+    }
+    if (this.scene) this.setData({ count: this.scene.count });
   },
 
   onHide() { if (this.scene) this.scene.stop(); },

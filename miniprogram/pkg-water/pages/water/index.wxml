@@ -8,7 +8,7 @@
       <view class="seg-item {{mode==='view'?'on':''}}" data-m="view" bindtap="onMode">视角</view>
       <view class="seg-item {{mode==='orbit'?'on':''}}" data-m="orbit" bindtap="onMode">环绕</view>
     </view>
-    <view class="stat" wx:if="{{!loading}}">{{count}} 个物体 · {{qualityName}}</view>
+    <view class="stat" wx:if="{{!loading}}">{{count}} 个物体 · {{perfNote || qualityName}}</view>
     <view class="stat" wx:else>装载中…</view>
   </view>
 
