@@ -82,7 +82,23 @@ const braces = (s) => (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).len
 ok(braces(shaderObj.vertexShader) === 0 && braces(shaderObj.fragmentShader) === 0, '着色器大括号配平');
 
 const scene = new THREE.Scene();
-for (const c of createPool(scene).colliders) physics.addStaticBox(c.half, c.pos);
+const pool = createPool(scene, 'mid');
+for (const c of pool.colliders) physics.addStaticBox(c.half, c.pos);
+
+// 池口必须通透：从正上方垂直往下打射线，水面以上不允许有任何几何体。
+// 曾经池边平台是一整块实心 Box 盖在 y=-0.15（顶面正好在水面高度），
+// 结果只有浪尖从板上冒出来，浪谷全被挡住，池子看起来是干的。
+scene.add(water.group);
+scene.updateMatrixWorld(true);   // 不做这一步，raycast 会用单位矩阵，全部打在原点
+const rayDown = new THREE.Raycaster(new THREE.Vector3(0, 20, 0), new THREE.Vector3(0, -1, 0));
+const hitsAbove = rayDown.intersectObjects(scene.children, true)
+  .filter((h) => h.point.y > -1.5);
+const blockers = hitsAbove.filter((h) => h.object !== water.mesh);
+ok(blockers.length === 0,
+  `池口无遮挡（水面以上命中 ${hitsAbove.length} 个，其中非水面 ${blockers.length} 个：${blockers.map((b) => b.object.name || b.object.type).join(',') || '无'}）`);
+ok(hitsAbove.some((h) => h.object === water.mesh), '水面在池口位置可被射线命中');
+ok(Math.abs(water.mesh.position.y - params.waterLevel) < 1e-6,
+  `水面高度 y=${water.mesh.position.y}（水位 ${params.waterLevel}）`);
 
 const t = createPrimitive('box', 1.2);
 const e = physics.addBody({

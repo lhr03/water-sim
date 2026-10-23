@@ -70,15 +70,28 @@ export function createPool(scene, quality = 'mid') {
     mkWall(wt, wallH, innerZ, -innerX / 2 - wt / 2, wallCY, 0, wallMatSide),
   );
 
-  // 池边平台
-  const deckTex = makeTileTexture(innerX / 2, innerZ / 2, '#e8eaed', '#b9bec4');
-  const deckMat = new THREE.MeshStandardMaterial({ map: deckTex, roughness: 0.75, metalness: 0.0 });
-  const deck = new THREE.Mesh(
-    new THREE.BoxGeometry(innerX + wt * 2 + 4, 0.3, innerZ + wt * 2 + 4),
-    deckMat,
-  );
-  deck.position.y = -0.15;
+  // 池边平台：必须是一块「中间有洞」的平面。
+  // 之前用整个 BoxGeometry 铺在 -0.15，等于在池口盖了一块板，板顶正好在水面高度，
+  // 结果水只有浪尖从板上冒出来、浪谷全被挡住，池子看起来是干的。
+  const deckW = 4.0;
+  const shape = new THREE.Shape();
+  const ox = innerX / 2 + wt + deckW;
+  const oz = innerZ / 2 + wt + deckW;
+  shape.moveTo(-ox, -oz); shape.lineTo(ox, -oz); shape.lineTo(ox, oz); shape.lineTo(-ox, oz); shape.closePath();
+  const hole = new THREE.Path();
+  const ix = innerX / 2 + wt;
+  const iz = innerZ / 2 + wt;
+  hole.moveTo(-ix, -iz); hole.lineTo(-ix, iz); hole.lineTo(ix, iz); hole.lineTo(ix, -iz); hole.closePath();
+  shape.holes.push(hole);
+  const deckGeo = new THREE.ShapeGeometry(shape);
+  deckGeo.rotateX(-Math.PI / 2);
+  // ShapeGeometry 的 UV 直接用顶点坐标（单位：米），所以 repeat 取 0.5，即每 2 米一次纹理
+  const deckTex = makeTileTexture(0.5, 0.5, '#e8eaed', '#b9bec4');
+  const deckMat = new THREE.MeshStandardMaterial({ map: deckTex, roughness: 0.85, metalness: 0.0 });
+  const deck = new THREE.Mesh(deckGeo, deckMat);
+  deck.position.y = wh;
   deck.receiveShadow = quality !== 'low';
+  deck.userData.pickable = 'deck';
 
   group.add(floor, deck);
   scene.add(group);
