@@ -1,9 +1,9 @@
-import * as THREE from 'three-platformize';
-import * as CANNON from 'cannon-es';
-import { ConvexHull } from 'three-platformize/examples/jsm/math/ConvexHull.js';
-import { GLTFLoader } from 'three-platformize/examples/jsm/loaders/GLTFLoader.js';
-import { OBJLoader } from 'three-platformize/examples/jsm/loaders/OBJLoader.js';
-import { STLLoader } from 'three-platformize/examples/jsm/loaders/STLLoader.js';
+import * as THREE from '../lib/build/three.module.js';
+import * as CANNON from '../lib/cannon-es.js';
+import { ConvexHull } from '../lib/examples/jsm/math/ConvexHull.js';
+import { GLTFLoader } from '../lib/examples/jsm/loaders/GLTFLoader.js';
+import { OBJLoader } from '../lib/examples/jsm/loaders/OBJLoader.js';
+import { STLLoader } from '../lib/examples/jsm/loaders/STLLoader.js';
 import { makeProbes, filterProbesInside } from './physics.js';
 
 const PALETTE = ['#FFD966', '#A8DAF5', '#A5D6A7', '#FFAB91', '#CE93D8', '#F48FB1', '#90CAF9', '#FFF59D'];

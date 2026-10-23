@@ -1,6 +1,6 @@
-import * as THREE from 'three-platformize';
-import WechatPlatform from 'three-platformize/src/WechatPlatform';
-import { OrbitControls } from 'three-platformize/examples/jsm/controls/OrbitControls.js';
+import * as THREE from '../lib/build/three.module.js';
+import { WechatPlatform } from '../lib/src/WechatPlatform/index.js';
+import { OrbitControls } from '../lib/examples/jsm/controls/OrbitControls.js';
 import { params as defaultParams, POOL } from './config.js';
 import { WaveField, createWater } from './water.js';
 import { createPool } from './pool.js';

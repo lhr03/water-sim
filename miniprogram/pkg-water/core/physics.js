@@ -1,4 +1,4 @@
-import * as CANNON from 'cannon-es';
+import * as CANNON from '../lib/cannon-es.js';
 
 const G = 9.82;
 const FIXED = 1 / 60;
