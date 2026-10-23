@@ -113,7 +113,7 @@ miniprogram/
         ├── build/three.module.js     # three r133 + 平台化补丁
         ├── cannon-es.js
         ├── src/WechatPlatform/       # 微信平台适配层
-        └── examples/jsm/             # 只留 GLTF/OBJ/STL loader、ConvexHull、OrbitControls
+        └── examples/jsm/             # 只留 OrbitControls（模型导入已砍掉）
 ```
 
 **为什么 three 要放分包**：小程序主包上限 2 MB，单个分包也是 2 MB。
@@ -141,3 +141,38 @@ three 加上 loader 超过 1 MB，放主包会直接爆。所以首页留在主�
 物理与波浪逻辑用 three 0.133 在 Node 里跑过：波浪场、浮力平衡、密度浮沉、池壁边界（60 N 强推 10 秒仍被挡在池内）、凸包生成，以及渲染层用到的 30 个 three API 存在性——全部通过。
 
 **没法替你验证的部分**：真机渲染效果、帧率、发热。这部分必须你在手机上扫预览码看。
+
+---
+
+## 发布上线
+
+### 前置检查
+
+```bash
+node scripts/verify.mjs     # 83 项自检，必须全绿
+```
+
+### 方式一：命令行上传（miniprogram-ci）
+
+1. 到 mp 后台下载「小程序代码上传密钥」：
+   `开发 → 开发管理 → 开发设置 → 小程序代码上传密钥`
+2. 把私钥文件按 `private.<appid>.key` 命名放回本目录（已在 `.gitignore` 里，不会入库）
+3. 上传：
+
+```bash
+npm install          # 只为装 miniprogram-ci，运行时不需要
+node scripts/upload.mjs                        # 用 package.json 的版本号
+node scripts/upload.mjs -v 1.0.1 -d "说明"      # 指定版本号和备注
+```
+
+上传出来的默认是**开发版**，还需要到 mp 后台 `版本管理` 里设为体验版或提交审核。
+
+### 方式二：微信开发者工具
+
+`设置 → 安全设置 → 服务端口` 打开后，工具右上角「上传」按钮与命令行 `cli upload` 都能用。
+
+### 体积
+
+主包极小（只有首页），three 全部在分包 `pkg-water`：`lib/` 1.7 MB，压缩后在 2 MB 上限内。
+`node_modules/` 与 `scripts/` 已在 `project.config.json` 的 `packOptions.ignore` 里排除，不会打进包。
+

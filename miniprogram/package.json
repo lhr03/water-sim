@@ -6,10 +6,14 @@
   "type": "module",
   "scripts": {
     "vendor": "node scripts/vendor-lib.mjs",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "upload": "node scripts/upload.mjs"
   },
   "dependencies": {
     "three-platformize": "^1.133.3",
     "cannon-es": "^0.20.0"
+  },
+  "devDependencies": {
+    "miniprogram-ci": "^2.1.31"
   }
 }

@@ -19,6 +19,10 @@ app.ico
 !miniprogram/pkg-water/lib/build/
 !miniprogram/pkg-water/lib/build/**
 
+# 小程序代码上传密钥（绝不能入库）
+*.key
+private.*.key
+
 # Python
 __pycache__/
 *.pyc
