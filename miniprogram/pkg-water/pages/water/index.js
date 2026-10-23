@@ -102,7 +102,7 @@ Page({
   onLoad(query) {
     this.quality = query.quality || 'mid';
     this.setData({ qualityName: QUALITY_NAME[this.quality] || '均衡' });
-    wx.setNavigationBarTitle({ title: '水世界 · 泳池' });
+    wx.setNavigationBarTitle({ title: '浮力演示台 · 泳池' });
   },
 
   onReady() {
@@ -356,6 +356,6 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: '水世界 · 3D 水中碰撞模拟器', path: '/pages/index/index' };
+    return { title: '浮力演示台 · 3D 水中碰撞模拟器', path: '/pages/index/index' };
   },
 });

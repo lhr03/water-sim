@@ -25,6 +25,6 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: '水世界 · 3D 水中碰撞模拟器', path: '/pages/index/index' };
+    return { title: '浮力演示台 · 3D 水中碰撞模拟器', path: '/pages/index/index' };
   },
 });

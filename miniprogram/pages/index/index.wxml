@@ -1,6 +1,6 @@
 <view class="page">
   <view class="hero">
-    <view class="title">水世界</view>
+    <view class="title">浮力演示台</view>
     <view class="sub">3D 水中碰撞模拟器</view>
   </view>
 

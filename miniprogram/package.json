@@ -1,7 +1,7 @@
 {
   "name": "water-sim-miniprogram",
   "version": "1.0.0",
-  "description": "水世界 · 3D 水中碰撞模拟器（微信小程序版）",
+  "description": "浮力演示台 · 3D 水中碰撞模拟器（微信小程序版）",
   "private": true,
   "type": "module",
   "scripts": {
