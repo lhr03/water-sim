@@ -233,6 +233,8 @@ export function createWater(waveField, quality = 'mid') {
     // 统一挂上去：新增 uniform 只要往 uniforms 里加一行，这里不用跟着改
     for (const k of Object.keys(uniforms)) shader.uniforms[k] = uniforms[k];
 
+    // 注意：waveGLSL 里已经声明过 varying float vFoam，这里不能再声明一次，
+    // 否则顶点着色器会因「redefinition of vFoam」编译失败，整个水面直接不渲染。
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${waveGLSL}`)
       .replace('#include <beginnormal_vertex>', /* glsl */`
