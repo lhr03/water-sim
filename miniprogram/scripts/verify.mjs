@@ -44,6 +44,21 @@ ok(typeof CANNON.World === 'function', 'cannon-es 可导入');
 
 const wave = new WaveField(params, 20261022);
 const physics = new WaterPhysics(params, wave);
+// 所有内置物体模板都必须有 root（不是 mesh）——scene.spawn 曾经写成 tpl.mesh 导致
+// 「Cannot set properties of undefined (setting 'castShadow')」
+const { PRIMITIVE_TYPES } = await import('../pkg-water/core/objects.js');
+let tplOk = 0;
+for (const t of PRIMITIVE_TYPES) {
+  const tpl = createPrimitive(t.id, 1.2);
+  if (tpl.root && tpl.shape && tpl.probes && tpl.probes.length > 0 && tpl.volume > 0) tplOk++;
+  else console.log(`    模板 ${t.id} 缺字段:`, Object.keys(tpl).join(','));
+}
+ok(tplOk === PRIMITIVE_TYPES.length, `${tplOk}/${PRIMITIVE_TYPES.length} 个内置物体模板结构完整（含 root）`);
+
+const sceneSrc = (await import('node:fs')).readFileSync(
+  new URL('../pkg-water/core/scene.js', import.meta.url), 'utf8');
+ok(!/tpl\.mesh/.test(sceneSrc), 'scene.js 未再误用 tpl.mesh');
+
 const scene = new THREE.Scene();
 for (const c of createPool(scene).colliders) physics.addStaticBox(c.half, c.pos);
 
