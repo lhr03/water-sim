@@ -43,7 +43,7 @@
 
 登录 mp 后台 → 左侧「开发」→「开发管理」→「开发设置」→ 复制 **AppID**（形如 `wx` 开头 18 位）。
 
-然后打开本目录下的 `project.config.json`，把 `"appid": "touristappid"` 换成你的 AppID。
+然后打开本目录下的 `project.config.json`，把 `"appid"` 换成你的 AppID。
 
 ### 3. 安装微信开发者工具
 
