@@ -59,6 +59,28 @@ const sceneSrc = (await import('node:fs')).readFileSync(
   new URL('../pkg-water/core/scene.js', import.meta.url), 'utf8');
 ok(!/tpl\.mesh/.test(sceneSrc), 'scene.js 未再误用 tpl.mesh');
 
+// 水面着色器：把注入结果在真实的 three shader 源码上跑一遍，检查声明是否重复。
+// 曾经因为 vFoam 被声明两次导致顶点着色器编译失败 → 水面整个不渲染、池子看起来是干的。
+const { createWater } = await import('../pkg-water/core/water.js');
+const wf2 = new (await import('../pkg-water/core/water.js')).WaveField(params, 7);
+const water = createWater(wf2, 'mid');
+const shaderObj = {
+  uniforms: {},
+  vertexShader: (THREE.ShaderLib.physical || THREE.ShaderLib.standard).vertexShader,
+  fragmentShader: (THREE.ShaderLib.physical || THREE.ShaderLib.standard).fragmentShader,
+};
+water.material.onBeforeCompile(shaderObj);
+const decls = (src, name) => (src.match(new RegExp(`\\b(?:uniform|varying|attribute)\\s+\\w+\\s+${name}\\s*(?:\\[|;)`, 'g')) || []).length;
+ok(decls(shaderObj.vertexShader, 'vFoam') === 1, `顶点着色器 vFoam 声明 ${decls(shaderObj.vertexShader, 'vFoam')} 次（应为 1）`);
+ok(decls(shaderObj.fragmentShader, 'vFoam') === 1, `片元着色器 vFoam 声明 ${decls(shaderObj.fragmentShader, 'vFoam')} 次（应为 1）`);
+ok(decls(shaderObj.vertexShader, 'uWaveA') === 1, `uWaveA 声明 ${decls(shaderObj.vertexShader, 'uWaveA')} 次（应为 1）`);
+ok(decls(shaderObj.vertexShader, 'uMaxAmp') === 1, `uMaxAmp 声明 ${decls(shaderObj.vertexShader, 'uMaxAmp')} 次（应为 1）`);
+ok(/waveNormalAt/.test(shaderObj.vertexShader) && /waveHeightAt/.test(shaderObj.vertexShader),
+  '顶点位移与法线函数已注入');
+ok(!/#include <beginnormal_vertex>/.test(shaderObj.vertexShader), 'beginnormal_vertex 锚点已被替换');
+const braces = (s) => (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+ok(braces(shaderObj.vertexShader) === 0 && braces(shaderObj.fragmentShader) === 0, '着色器大括号配平');
+
 const scene = new THREE.Scene();
 for (const c of createPool(scene).colliders) physics.addStaticBox(c.half, c.pos);
 
