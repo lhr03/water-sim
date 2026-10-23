@@ -13,6 +13,12 @@ build/
 *.spec
 app.ico
 
+# 例外：小程序分包里按 import 图抽取的依赖要入库（上面的 build/ 会误伤 three.module.js）
+!miniprogram/pkg-water/lib/
+!miniprogram/pkg-water/lib/**
+!miniprogram/pkg-water/lib/build/
+!miniprogram/pkg-water/lib/build/**
+
 # Python
 __pycache__/
 *.pyc

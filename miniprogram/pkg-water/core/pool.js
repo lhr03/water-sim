@@ -1,4 +1,4 @@
-import * as THREE from 'three-platformize';
+import * as THREE from '../lib/build/three.module.js';
 import { POOL } from './config.js';
 
 /**

@@ -56,15 +56,22 @@
 - 目录：选 **`miniprogram`** 这一层（不是它的上层）
 - AppID：填你自己的；想先看效果也可以选「测试号」，但测试号不能上传发布
 
-### 5. 构建 npm（**这步不能漏**）
+### 5. 直接点「编译」就行——**不需要构建 npm**
 
-项目用了 npm 包，微信不会自动打包。在开发者工具里：
+这个项目**刻意不走**微信的「构建 npm」。原因：开发者的「构建 npm」会把整个 npm 包复制进
+`miniprogram_npm`，而 `three-platformize` 光 `examples/` 就有 9.5 MB、整包 14 MB，
+远超小程序单个分包 2 MB 的上限，一上传就会失败。
 
-> 工具 → 构建 npm
+所以改用了精确抽取：`scripts/vendor-lib.mjs` 按 import 图只挑真正用到的文件，
+拷进 `pkg-water/lib/`，代码里全部用相对路径引用。**库已经抽好并放在仓库里，直接编译即可。**
 
-会生成 `pkg-water/miniprogram_npm/`。没做这步会报「module not found」。
+只有在要升级 three 版本时才需要重新抽取：
 
-如果报找不到依赖，先在本目录执行 `npm install` 再重新构建。
+```bash
+npm install          # 装 three-platformize / cannon-es 到 node_modules（仅抽取时的来源）
+npm run vendor       # 按 import 图抽取到 pkg-water/lib/
+npm run verify       # 在 Node 里跑一遍模块图与物理，确认没抽漏
+```
 
 ### 6. 预览与发布
 
@@ -81,19 +88,27 @@
 ```
 miniprogram/
 ├── app.js / app.json / app.wxss      # 主包：只放首页
-├── project.config.json               # AppID、npm 构建配置
-├── package.json                      # three-platformize + cannon-es
+├── project.config.json               # AppID
+├── package.json                      # 仅用于抽取依赖，不在运行时使用
+├── scripts/
+│   ├── vendor-lib.mjs                # 按 import 图抽取依赖 → pkg-water/lib/
+│   └── verify.mjs                    # Node 里跑模块图 + 物理自检
 ├── pages/index/                      # 首页：画质选择 + 进入
 └── pkg-water/                        # 分包（three 在这里，不占主包 2MB 额度）
     ├── pages/water/                  # 3D 页面：canvas + 控制面板
-    └── core/                         # 与网页版同源的物理/波浪逻辑
-        ├── config.js  water.js  physics.js
-        ├── pool.js    objects.js  scene.js  audio.js
+    ├── core/                         # 与网页版同源的物理/波浪逻辑
+    │   ├── config.js  water.js  physics.js
+    │   └── pool.js    objects.js  scene.js  audio.js
+    └── lib/                          # 抽取后的依赖（1.7 MB，已入库）
+        ├── build/three.module.js     # three r133 + 平台化补丁
+        ├── cannon-es.js
+        ├── src/WechatPlatform/       # 微信平台适配层
+        └── examples/jsm/             # 只留 GLTF/OBJ/STL loader、ConvexHull、OrbitControls
 ```
 
 **为什么 three 要放分包**：小程序主包上限 2 MB，单个分包也是 2 MB。
-three 加上 loader 轻松超过 1 MB，放主包会直接爆。所以首页留在主包，3D 页面整体挪到 `pkg-water` 分包，
-`project.config.json` 里把 npm 构建产物也指定到 `./pkg-water/`。
+three 加上 loader 超过 1 MB，放主包会直接爆。所以首页留在主包，3D 页面整体挪到 `pkg-water` 分包。
+抽取后的 `lib/` 共 1.7 MB，上传时会被压缩，在 2 MB 上限内。
 
 ---
 
