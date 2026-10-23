@@ -10,8 +10,8 @@
     "upload": "node scripts/upload.mjs"
   },
   "dependencies": {
-    "three-platformize": "^1.133.3",
-    "cannon-es": "^0.20.0"
+    "cannon-es": "^0.20.0",
+    "three-platformize": "^1.133.3"
   },
   "devDependencies": {
     "miniprogram-ci": "^2.1.31"
