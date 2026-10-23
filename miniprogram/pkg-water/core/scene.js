@@ -653,38 +653,6 @@ export class WaterScene {
     this._applyShadowEnabled(!!on && this.q.shadow);
   }
 
-  /**
-   * 画布尺寸变了（比如控制面板展开把画布挤矮了）要同步渲染器与相机，
-   * 否则画面会被拉伸变形。
-   */
-  resize(w, h) {
-    if (!w || !h) return;
-    const nw = Math.max(1, Math.floor(w));
-    const nh = Math.max(1, Math.floor(h));
-    if (nw === this.viewW && nh === this.viewH) return;
-    this.viewW = nw;
-    this.viewH = nh;
-    this.renderer.setSize(nw, nh, false);
-    this.camera.aspect = nw / nh;
-    this.camera.updateProjectionMatrix();
-  }
-
-  /**
-   * 画布尺寸变了（比如控制面板展开把画布挤矮了）要同步渲染器与相机，
-   * 否则画面会被拉伸变形。
-   */
-  resize(w, h) {
-    if (!w || !h) return;
-    const nw = Math.max(1, Math.floor(w));
-    const nh = Math.max(1, Math.floor(h));
-    if (nw === this.viewW && nh === this.viewH) return;
-    this.viewW = nw;
-    this.viewH = nh;
-    this.renderer.setSize(nw, nh, false);
-    this.camera.aspect = nw / nh;
-    this.camera.updateProjectionMatrix();
-  }
-
   /* ------------------------------ 主循环 ------------------------------ */
 
   start() {
