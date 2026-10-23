@@ -5,7 +5,7 @@ import { params as defaultParams, POOL } from './config.js';
 import { WaveField, createWater } from './water.js';
 import { createPool } from './pool.js';
 import { WaterPhysics } from './physics.js';
-import { createPrimitive, buildFloatingTemplate, loadModelFile, PRIMITIVE_TYPES } from './objects.js';
+import { createPrimitive, PRIMITIVE_TYPES } from './objects.js';
 import { AudioEngine } from './audio.js';
 
 const QUALITY = {
@@ -13,6 +13,9 @@ const QUALITY = {
   mid:  { pixelRatio: 1.5, shadow: true,  shadowMap: 1024, antialias: false },
   high: { pixelRatio: 2.0, shadow: true,  shadowMap: 2048, antialias: true  },
 };
+
+// 同屏物体上限。每个物体每帧要跑 32 次水面采样做浮力，40 个已经是这台机器的极限
+const MAX_OBJECTS = 40;
 
 /**
  * 3D 场景封装。页面只负责 UI，所有 three / 物理逻辑都在这里。
@@ -31,7 +34,8 @@ export class WaterScene {
     this.onEvent = onEvent || (() => {});
     this.params = JSON.parse(JSON.stringify(defaultParams));
     this.objects = [];
-    this.mode = 'drop';          // 'drop' | 'view'
+    this.mode = 'drop';          // 'drop' | 'view' | 'orbit'
+    this.dropType = 'random';    // 点水面时丢什么
     this.running = false;
     this._grab = null;
     this._lastT = 0;
@@ -155,8 +159,15 @@ export class WaterScene {
 
   setMode(mode) {
     this.mode = mode;
-    this.controls.enabled = (mode === 'view');
-    if (mode !== 'view') this._grab = null;
+    // 环绕 = 视角模式 + 自动转圈，适合放在桌上当动态摆件 / 录屏
+    this.controls.enabled = (mode === 'view' || mode === 'orbit');
+    this.controls.autoRotate = (mode === 'orbit');
+    this.controls.autoRotateSpeed = 0.6;
+    if (!this.controls.enabled) this._grab = null;
+  }
+
+  setDropType(t) {
+    this.dropType = t || 'random';
   }
 
   /** 页面把 touch 事件转发进来；视角模式交给 OrbitControls，投放模式自己处理 */
@@ -165,7 +176,7 @@ export class WaterScene {
       if (this.mode === 'drop') this._tapDrop(e);
       return;
     }
-    if (this.mode === 'view') {
+    if (this.controls.enabled) {
       this.platform.dispatchTouchEvent(this._toTouchEvent(type, e));
       return;
     }
@@ -210,9 +221,24 @@ export class WaterScene {
   _tapDrop(e) {
     const hit = this._pick(e);
     if (hit && hit.object && hit.object.name === 'waterSurface') {
-      this.spawn('ball', hit.point.x, hit.point.z);
+      this.spawn(this.dropType, hit.point.x, hit.point.z);
       this.onEvent({ type: 'spawned' });
     }
+  }
+
+  _removeOldest() {
+    const ent = this.objects.shift();
+    if (!ent) return;
+    if (ent.mesh) this.scene.remove(ent.mesh);
+    this.physics.remove(ent);
+    // bodyIndex 必须跟着重排，否则点击拾取会抓到隔壁物体
+    this.objects.forEach((o, i) => { if (o.mesh) o.mesh.userData.bodyIndex = i; });
+  }
+
+  /** 「推一把」：给所有漂浮物一个随机冲量，像有人踹了一脚泳池 */
+  kick(dv = 2.2) {
+    this.physics.kick(dv);
+    if (this.audio) this.audio.splash(0.7);
   }
 
   _tryGrab(e) {
@@ -237,8 +263,10 @@ export class WaterScene {
 
   /* ------------------------------ 物体 ------------------------------ */
 
-  /** @param type 'ball' | 'crate' | ... | 'random' */
-  spawn(type, x, z, libIndex) {
+  /** @param type 'ball' | 'duck' | ... | 'random' */
+  spawn(type, x, z) {
+    // 连点很爽，但物体无限堆会掉帧：满了就把最早的捞走
+    if (this.objects.length >= MAX_OBJECTS) this._removeOldest();
     const t = type === 'random' || type === undefined
       ? PRIMITIVE_TYPES[Math.floor(Math.random() * PRIMITIVE_TYPES.length)].id
       : type;
@@ -268,30 +296,9 @@ export class WaterScene {
       size: tpl.size,
       mesh,
       seed: Math.random() * 10,
+      upright: tpl.upright,
     });
     ent.mesh = mesh;
-    this.objects.push(ent);
-    return ent;
-  }
-
-  async importModel(path, name) {
-    const root = await loadModelFile(path, name);
-    const tpl = buildFloatingTemplate(root, this.params.objectScale);
-    this.scene.add(root);
-    const idx = this.objects.length;
-    root.userData.bodyIndex = idx;
-    const ent = this.physics.addBody({
-      shape: tpl.shape,
-      mass: tpl.volume * this.params.density * this.params.waterDensity,
-      position: { x: (Math.random() * 2 - 1) * 4, y: this.params.waterLevel + 2.5, z: (Math.random() * 2 - 1) * 3 },
-      quaternion: new THREE.Quaternion(),
-      volume: tpl.volume,
-      probes: tpl.probes,
-      size: tpl.size,
-      mesh: root,
-      seed: Math.random() * 10,
-    });
-    ent.mesh = root;
     this.objects.push(ent);
     return ent;
   }
@@ -353,6 +360,12 @@ export class WaterScene {
     this.water.refresh();
     this.physics.wakeAll();
     this.audio.update();
+  }
+
+  /** 一键预设：把一组风浪/水体参数整体套上去 */
+  applyPreset(obj) {
+    Object.assign(this.params, obj);
+    this.refreshWave();
   }
 
   /** 水体外观变了 */

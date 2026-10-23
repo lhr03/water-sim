@@ -59,6 +59,17 @@ const sceneSrc = (await import('node:fs')).readFileSync(
   new URL('../pkg-water/core/scene.js', import.meta.url), 'utf8');
 ok(!/tpl\.mesh/.test(sceneSrc), 'scene.js 未再误用 tpl.mesh');
 
+// 模型导入已砍：loader 与 importModel 都不该再出现，否则会把体积和坑一起带回来
+const fsMod = await import('node:fs');
+const objSrc = fsMod.readFileSync(new URL('../pkg-water/core/objects.js', import.meta.url), 'utf8');
+// 只看真正的 import 语句：注释里会提到 loader 名字，那不算
+ok(!/from\s+['"][^'"]*loaders\//.test(objSrc), 'objects.js 不再 import 模型 loader');
+ok(!/importModel/.test(sceneSrc), 'scene.js 不再有 importModel');
+ok(/setDropType/.test(sceneSrc) && /applyPreset/.test(sceneSrc) && /kick\(/.test(sceneSrc),
+  'scene.js 提供 setDropType / applyPreset / kick');
+ok(['duck', 'gem', 'log'].every((id) => PRIMITIVE_TYPES.some((t) => t.id === id)),
+  '新物体（小黄鸭 / 多面体 / 浮木）已注册');
+
 // 水面着色器：把注入结果在真实的 three shader 源码上跑一遍，检查声明是否重复。
 // 曾经因为 vFoam 被声明两次导致顶点着色器编译失败 → 水面整个不渲染、池子看起来是干的。
 const { createWater } = await import('../pkg-water/core/water.js');
@@ -134,6 +145,48 @@ physics.addBody({
 });
 for (let i = 0; i < 180; i++) { wave.update(dt); physics.step(dt); }
 ok(impacts >= 1, `高速撞击触发碰撞事件 ${impacts} 次`);
+
+// 「推一把」：冲量必须按质量给，否则重箱子不动、轻鸭子飞出池子。
+// 判据看速度矢量的变化量（不是速率）：物体本来就朝反方向动时，速率反而会变小。
+const before = physics.bodies.map((b) => ({
+  x: b.body.velocity.x, y: b.body.velocity.y, z: b.body.velocity.z,
+}));
+physics.kick(2.5);
+let moved = 0;
+let maxDv = 0;
+physics.bodies.forEach((b, i) => {
+  const d = before[i];
+  const dv = Math.hypot(b.body.velocity.x - d.x, b.body.velocity.y - d.y, b.body.velocity.z - d.z);
+  if (dv > 0.3) moved++;
+  maxDv = Math.max(maxDv, dv);
+});
+ok(moved === physics.bodies.length,
+  `kick 让 ${moved}/${physics.bodies.length} 个物体获得速度（最大 Δv=${maxDv.toFixed(2)} m/s）`);
+
+// 小黄鸭必须能自己翻正：碰撞盒是均质盒子，翻 180° 同样是平衡态，
+// 不加自扶正力矩它就会一直倒着浮（实测 up.y = -0.67，即肚皮朝天）。
+{
+  const p2 = Object.assign({}, params, { windStrength: 0, waveHeight: 0, windGust: 0 });
+  const wf3 = new WaveField(p2, 5150);
+  const ph3 = new WaterPhysics(p2, wf3);
+  const duck = createPrimitive('duck', 1.2);
+  ok(duck.upright === true, '小黄鸭标记了自扶正（upright）');
+  const e3 = ph3.addBody({
+    shape: duck.shape, mass: duck.volume * p2.density * p2.waterDensity,
+    position: { x: 0, y: 2.5, z: 0 },
+    quaternion: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI),
+    volume: duck.volume, probes: duck.probes, size: duck.size, mesh: null, seed: 3,
+    upright: duck.upright,
+  });
+  for (let i = 0; i < 600; i++) { wf3.update(dt); ph3.step(dt); }
+  const q3 = e3.body.quaternion;
+  const up3 = new THREE.Vector3(0, 1, 0)
+    .applyQuaternion(new THREE.Quaternion(q3.x, q3.y, q3.z, q3.w));
+  const tilt = (Math.acos(Math.min(1, Math.abs(up3.y))) * 180) / Math.PI;
+  ok(tilt < 25, `倒着扔的小黄鸭翻了回来，残余倾角 ${tilt.toFixed(0)}°`);
+  ok(e3.body.position.y > -0.4 && e3.body.position.y < 0.6,
+    `小黄鸭浮在 ${e3.body.position.y.toFixed(3)}（水面附近）`);
+}
 
 console.log(fail === 0 ? '\n全部通过 ✓' : `\n失败 ${fail} 项 ✘`);
 process.exit(fail === 0 ? 0 : 1);

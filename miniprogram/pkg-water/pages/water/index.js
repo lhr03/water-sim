@@ -1,4 +1,5 @@
 import { WaterScene } from '../../core/scene.js';
+import { PRIMITIVE_TYPES } from '../../core/objects.js';
 
 const TABS = [
   { id: 'wave', name: '风浪' },
@@ -45,6 +46,32 @@ const SOUND_SLIDERS = [
 
 const QUALITY_NAME = { low: '流畅', mid: '均衡', high: '精细' };
 
+/*
+ * 一键场景预设。
+ * 每项里的键必须和滑块绑定的 params 键一一对应，数值也要落在滑块 min/max 内，
+ * 否则切换后会出现「滑块显示 1.2、实际是 3」这种对不上的情况。
+ */
+const PRESETS = [
+  { id: 'calm', name: '平静', vals: {
+    windStrength: 0.4, windGust: 0.05, waveHeight: 0.05, waveSpeed: 0.6,
+    choppiness: 0.15, foamAmount: 0.05, waveSpread: 20,
+  } },
+  { id: 'breeze', name: '微风', vals: {
+    windStrength: 1.6, windGust: 0.25, waveHeight: 0.14, waveSpeed: 0.85,
+    choppiness: 0.3, foamAmount: 0.25, waveSpread: 35,
+  } },
+  { id: 'swell', name: '大浪', vals: {
+    windStrength: 5.5, windGust: 0.55, waveHeight: 0.55, waveSpeed: 1.3,
+    choppiness: 0.6, foamAmount: 0.7, waveSpread: 60,
+  } },
+  { id: 'typhoon', name: '台风', vals: {
+    windStrength: 10.5, windGust: 0.9, waveHeight: 1.05, waveSpeed: 1.9,
+    choppiness: 0.9, foamAmount: 1.0, waveSpread: 120,
+  } },
+];
+
+const OBJECT_TYPES = [{ id: 'random', label: '随机' }, ...PRIMITIVE_TYPES];
+
 Page({
   data: {
     loading: true,
@@ -58,6 +85,12 @@ Page({
     sliders: SLIDERS,
     lampSliders: LAMP_SLIDERS,
     soundSliders: SOUND_SLIDERS,
+    presets: PRESETS.map((p) => ({ id: p.id, name: p.name })),
+    // 初始状态是默认参数，不属于任何预设，所以不给高亮
+    preset: '',
+    objectTypes: OBJECT_TYPES,
+    dropType: 'random',
+    dropTypeName: '随机',
     waterColors: ['#1d7fd0', '#0e5fa8', '#2fb4c8', '#1a9e8f', '#3a6fd8', '#7a5fc8'],
     lampColors: ['#ffb066', '#5ec8ff', '#ff6ec7', '#a5d6a7', '#ffd966', '#ff8a65'],
     params: {},
@@ -153,11 +186,42 @@ Page({
     if (!this.scene) return;
     this.scene.setMode(m);
     this.setData({ mode: m });
-    wx.showToast({
-      title: m === 'view' ? '视角模式：拖动旋转，双指缩放' : '投放模式：点水面丢物体，按住可拖动',
-      icon: 'none',
-      duration: 1800,
-    });
+    const tip = m === 'view' ? '视角模式：拖动旋转，双指缩放'
+      : m === 'orbit' ? '环绕模式：镜头自己转，可以摆在桌上看'
+        : '投放模式：点水面丢物体，按住可拖动';
+    wx.showToast({ title: tip, icon: 'none', duration: 1600 });
+  },
+
+  /** 一键场景预设 */
+  onPreset(e) {
+    const id = e.currentTarget.dataset.p;
+    const p = PRESETS.find((x) => x.id === id);
+    if (!p || !this.scene) return;
+    this.scene.applyPreset(p.vals);
+    const patch = { preset: id };
+    for (const k of Object.keys(p.vals)) patch[`params.${k}`] = p.vals[k];
+    this.setData(patch);
+    wx.showToast({ title: `已切换到「${p.name}」`, icon: 'none', duration: 1200 });
+  },
+
+  /** 推一把：给所有物体一个随机冲量 */
+  onShake() {
+    if (!this.scene) return;
+    if (!this.scene.count) {
+      wx.showToast({ title: '先丢几个物体进去', icon: 'none' });
+      return;
+    }
+    this.scene.kick(2.4);
+    wx.vibrateShort && wx.vibrateShort({ type: 'light' });
+  },
+
+  /** 选择点水面时丢什么 */
+  onDropType(e) {
+    const id = e.currentTarget.dataset.t;
+    const found = OBJECT_TYPES.find((x) => x.id === id);
+    if (!this.scene) return;
+    this.scene.setDropType(id);
+    this.setData({ dropType: id, dropTypeName: found ? found.label : '随机' });
   },
 
   /* ---------------------- 滑块 ---------------------- */
@@ -167,7 +231,8 @@ Page({
     const key = e.currentTarget.dataset.key;
     const v = Number(e.detail.value);
     this.scene.params[key] = v;
-    this.setData({ [`params.${key}`]: v });
+    // 手动拖过滑块就不再算「某个预设」了，否则高亮会骗人
+    this.setData({ [`params.${key}`]: v, preset: '' });
 
     if (key === 'waterLevel' || key === 'waterOpacity' || key === 'foamAmount') {
       this.scene.refreshWater();
@@ -241,7 +306,7 @@ Page({
 
   onAdd() {
     if (!this.scene) return;
-    this.scene.spawn('random');
+    this.scene.spawn(this.data.dropType);
     this.setData({ count: this.scene.count });
   },
 
@@ -256,35 +321,6 @@ Page({
     this.scene.camera.position.set(17, 11, 20);
     this.scene.controls.target.set(0, 0, 0);
     this.scene.controls.update();
-  },
-
-  onImport() {
-    if (!this.scene) return;
-    wx.chooseMessageFile({
-      count: 1,
-      type: 'file',
-      extension: ['glb', 'gltf', 'obj', 'stl'],
-      success: (res) => {
-        const f = res.tempFiles && res.tempFiles[0];
-        if (!f) return;
-        wx.showLoading({ title: '解析中…' });
-        this.scene.importModel(f.path, f.name)
-          .then(() => {
-            wx.hideLoading();
-            this.setData({ count: this.scene.count });
-            wx.showToast({ title: '导入成功', icon: 'success' });
-          })
-          .catch((err) => {
-            wx.hideLoading();
-            wx.showModal({
-              title: '导入失败',
-              content: String((err && err.message) || err).slice(0, 140),
-              showCancel: false,
-            });
-          });
-      },
-      fail: () => {},
-    });
   },
 
   onShareAppMessage() {

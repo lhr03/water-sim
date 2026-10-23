@@ -21,15 +21,13 @@ if (!existsSync(join(TP, 'package.json'))) {
   process.exit(1);
 }
 
-// 入口：主渲染库、平台适配层、以及实际用到的 4 个 addon
+// 入口：主渲染库、平台适配层、以及实际用到的 addon
+// 模型导入已砍掉（小程序沙箱里 GLTFLoader 取贴图必失败），所以不再抽 GLTFLoader /
+// OBJLoader / STLLoader / ConvexHull —— 少 0.3MB 左右。
 const ENTRIES = [
   'build/three.module.js',
   'src/WechatPlatform/index.js',
   'examples/jsm/controls/OrbitControls.js',
-  'examples/jsm/math/ConvexHull.js',
-  'examples/jsm/loaders/GLTFLoader.js',
-  'examples/jsm/loaders/OBJLoader.js',
-  'examples/jsm/loaders/STLLoader.js',
 ];
 
 const RE_IMPORT = /(?:from|import)\s+['"](\.[^'"]+)['"]/g;

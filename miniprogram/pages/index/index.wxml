@@ -6,13 +6,13 @@
 
   <view class="card desc">
     <view class="row">泳池里的水会起风浪，丢进去的模型会真的浮起来、互相撞</view>
-    <view class="row">支持导入 glb / gltf / obj / fbx / stl 模型</view>
+    <view class="row">内置小黄鸭、木箱、救生圈等 9 种物体，点水面就丢</view>
     <view class="row">风向、风力、浪高、波长都能实时调</view>
   </view>
 
   <view class="card notice">
     <view class="notice-title">首次进入提示</view>
-    <view class="row">3D 场景在分包里，首次进入会下载约 1 MB 资源，请保持网络畅通</view>
+    <view class="row">3D 场景在分包里，首次进入会下载约 1.5 MB 资源，请保持网络畅通</view>
     <view class="row">建议在性能较好的手机上体验，画面较吃 GPU</view>
   </view>
 

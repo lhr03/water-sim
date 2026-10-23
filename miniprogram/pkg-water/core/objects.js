@@ -1,319 +1,178 @@
 import * as THREE from '../lib/build/three.module.js';
 import * as CANNON from '../lib/cannon-es.js';
-import { ConvexHull } from '../lib/examples/jsm/math/ConvexHull.js';
-import { GLTFLoader } from '../lib/examples/jsm/loaders/GLTFLoader.js';
-import { OBJLoader } from '../lib/examples/jsm/loaders/OBJLoader.js';
-import { STLLoader } from '../lib/examples/jsm/loaders/STLLoader.js';
 import { makeProbes, filterProbesInside } from './physics.js';
+
+/*
+ * 小程序版只做内置物体，不提供外部模型导入。
+ *
+ * 原因：小程序的沙箱里没有 FileReader / URL / fetch，GLTFLoader 解析 .glb 时
+ * 依赖这些接口去取贴图，即使把文件读成 ArrayBuffer 喂给 parse()，贴图那一步也会挂；
+ * 更要紧的是 .gltf 往往还要外挂 .bin 和贴图文件，必须做成 zip 才能带进来。
+ * 结果是绝大多数模型导入都失败——与其留个坏入口，不如删掉，把体积让给渲染。
+ * 删掉三个 loader 后分包少了约 0.3MB。
+ */
 
 const PALETTE = ['#FFD966', '#A8DAF5', '#A5D6A7', '#FFAB91', '#CE93D8', '#F48FB1', '#90CAF9', '#FFF59D'];
 
-let gltfLoader = null;
-export function getGLTFLoader() {
-  if (!gltfLoader) gltfLoader = new GLTFLoader();
-  return gltfLoader;
-}
-
-/** 小程序里把 UTF-8 的 ArrayBuffer 转成字符串（没有 TextDecoder 时兜底） */
-function bufToText(buf) {
-  if (typeof TextDecoder !== 'undefined') {
-    try { return new TextDecoder('utf-8').decode(buf); } catch (e) { /* fallthrough */ }
-  }
-  const bytes = new Uint8Array(buf);
-  let s = '';
-  const CHUNK = 8192;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    s += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return decodeURIComponent(escape(s));
-}
-
-/**
- * 从小程序临时文件路径导入模型。
- * 小程序没有 FileReader / URL，只能用 FileSystemManager 读成 ArrayBuffer 再喂给 loader.parse。
- * @param path wx.chooseMessageFile 返回的临时文件路径
- * @param name 原始文件名（用于判断扩展名）
- */
-export function loadModelFile(path, name) {
-  return new Promise((resolve, reject) => {
-    const fname = name || path || 'model';
-    const ext = (fname.slice(fname.lastIndexOf('.')) || '').toLowerCase();
-    let buf;
-    try {
-      buf = wx.getFileSystemManager().readFileSync(path);
-    } catch (e) {
-      reject(new Error('文件读取失败'));
-      return;
-    }
-    // readFileSync 不传编码时返回 ArrayBuffer
-    const ab = buf instanceof ArrayBuffer ? buf : (buf && buf.buffer) || buf;
-
-    try {
-      if (ext === '.glb') {
-        getGLTFLoader().parse(ab, '', (gltf) => {
-          resolve(gltf.scene || gltf.scenes[0]);
-        }, (err) => reject(new Error('GLB 解析失败')));
-      } else if (ext === '.gltf') {
-        getGLTFLoader().parse(bufToText(ab), '', (gltf) => {
-          resolve(gltf.scene || gltf.scenes[0]);
-        }, (err) => reject(new Error('glTF 解析失败')));
-      } else if (ext === '.obj') {
-        const obj = new OBJLoader().parse(bufToText(ab));
-        obj.traverse((o) => {
-          if (o.isMesh) {
-            o.material = new THREE.MeshStandardMaterial({
-              color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
-              roughness: 0.55, metalness: 0.05,
-            });
-          }
-        });
-        resolve(obj);
-      } else if (ext === '.stl') {
-        const geo = new STLLoader().parse(ab);
-        geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-          color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
-          roughness: 0.5, metalness: 0.1,
-        }));
-        resolve(mesh);
-      } else {
-        reject(new Error('暂不支持的格式：' + ext));
-      }
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-/* --------------------- 几何 → 碰撞体 / 体积 / 探针 --------------------- */
-
-export function collectPoints(root, maxPoints = 6000) {
-  root.updateMatrixWorld(true);
-  const pts = [];
-  const v = new THREE.Vector3();
-  const meshes = [];
-  root.traverse((o) => { if (o.isMesh && o.geometry && o.geometry.attributes.position) meshes.push(o); });
-  let total = 0;
-  for (const m of meshes) total += m.geometry.attributes.position.count;
-  const stride = Math.max(1, Math.ceil(total / maxPoints));
-  let count = 0;
-  for (const m of meshes) {
-    const pos = m.geometry.attributes.position;
-    for (let i = 0; i < pos.count; i += stride) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-      pts.push(v.clone());
-      count++;
-    }
-  }
-  return pts;
-}
-
-export function computeVolume(root) {
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-  const ab = new THREE.Vector3(), ac = new THREE.Vector3();
-  root.updateMatrixWorld(true);
-  let vol = 0;
-  root.traverse((o) => {
-    if (!o.isMesh || !o.geometry) return;
-    const g = o.geometry;
-    const pos = g.attributes.position;
-    if (!pos) return;
-    const idx = g.index;
-    const n = idx ? idx.count : pos.count;
-    for (let i = 0; i < n; i += 3) {
-      const i0 = idx ? idx.getX(i) : i;
-      const i1 = idx ? idx.getX(i + 1) : i + 1;
-      const i2 = idx ? idx.getX(i + 2) : i + 2;
-      a.fromBufferAttribute(pos, i0).applyMatrix4(o.matrixWorld);
-      b.fromBufferAttribute(pos, i1).applyMatrix4(o.matrixWorld);
-      c.fromBufferAttribute(pos, i2).applyMatrix4(o.matrixWorld);
-      ab.subVectors(b, a);
-      ac.subVectors(c, a);
-      vol += a.dot(new THREE.Vector3().crossVectors(ab, ac)) / 6;
-    }
-  });
-  return Math.abs(vol);
-}
-
-/** 把点集按体素格粗化，用于在面数过多时生成“简化凸包” */
-function simplifyPoints(points, maxDim, cells = 8) {
-  const q = Math.max(1e-4, maxDim / cells);
-  const map = new Map();
-  for (const p of points) {
-    const k = `${Math.round(p.x / q)}|${Math.round(p.y / q)}|${Math.round(p.z / q)}`;
-    if (!map.has(k)) map.set(k, p.clone());
-  }
-  return [...map.values()];
-}
-
-function hullToCannonShape(points, maxFaces = 64, maxVerts = 110) {
-  const hull = new ConvexHull().setFromPoints(points);
-  if (hull.faces.length > maxFaces) return null;
-  const verts = [];
-  const map = new Map();
-  const faces = [];
-  for (const f of hull.faces) {
-    const idx = [];
-    let e = f.edge;
-    let guard = 0;
-    do {
-      const p = e.head().point;
-      const key = `${p.x.toFixed(4)}|${p.y.toFixed(4)}|${p.z.toFixed(4)}`;
-      let i = map.get(key);
-      if (i === undefined) {
-        i = verts.length;
-        map.set(key, i);
-        verts.push(new CANNON.Vec3(p.x, p.y, p.z));
-      }
-      idx.push(i);
-      e = e.next;
-      guard++;
-    } while (e !== f.edge && guard < 512);
-    if (idx.length >= 3) faces.push(idx);
-  }
-  if (faces.length < 4 || faces.length > maxFaces || verts.length > maxVerts) return null;
-  try {
-    const shape = new CANNON.ConvexPolyhedron({ vertices: verts, faces });
-    return shape;
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
- * 把任意 Object3D 处理成“可投放的漂浮体模板”
- * @returns {root, shape, volume, probes, size, bounds}
- */
-export function buildFloatingTemplate(object, targetSize) {
-  const box = new THREE.Box3().setFromObject(object);
-  if (box.isEmpty()) throw new Error('模型为空');
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const s = targetSize / maxDim;
-
-  const root = new THREE.Group();
-  object.position.sub(center);           // 几何中心对齐到 root 原点
-  root.add(object);
-  root.scale.setScalar(s);
-  root.updateMatrixWorld(true);
-
-  root.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-      if (o.material) {
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) {
-          if (m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) {
-            m.envMapIntensity = 1.0;
-          }
-        }
-      }
-    }
-  });
-
-  // 体积
-  const bb = new THREE.Box3().setFromObject(root);
-  const bsize = bb.getSize(new THREE.Vector3());
-  const bboxVol = bsize.x * bsize.y * bsize.z;
-  let volume = computeVolume(root);
-  if (!isFinite(volume) || volume <= 1e-8 || volume > Math.max(bboxVol, 1e-6) * 1.5) {
-    // 非闭合 / 退化（例如一个平面）网格的兜底估计
-    volume = bboxVol > 1e-5 ? bboxVol * 0.5 : Math.max(bsize.x * bsize.z * 0.02, 5e-4);
-  }
-  volume = Math.max(volume, 2e-4);
-
-  // 碰撞体：优先凸包（面数过多时先做点集粗化再求凸包），最后退化用盒
-  let shape = null;
-  try {
-    const pts = collectPoints(root);
-    const maxDim = Math.max(bsize.x, bsize.y, bsize.z);
-    shape = hullToCannonShape(pts);
-    if (!shape) shape = hullToCannonShape(simplifyPoints(pts, maxDim, 8));
-    if (!shape) shape = hullToCannonShape(simplifyPoints(pts, maxDim, 5));
-    if (!shape) shape = new CANNON.Box(new CANNON.Vec3(bsize.x / 2, bsize.y / 2, bsize.z / 2));
-  } catch (e) {
-    shape = new CANNON.Box(new CANNON.Vec3(bsize.x / 2, bsize.y / 2, bsize.z / 2));
-  }
-
-  // 采样密一点再过滤到物体内部，最终约 32 个探针（与不过滤时的开销相当）
-  const probes = filterProbesInside(makeProbes(bb, 4), shape);
-  return {
-    root,
-    shape,
-    volume,
-    probes,
-    size: Math.max(bsize.x, bsize.y, bsize.z),
-    bounds: bsize,
-  };
+function pickColor() {
+  return PALETTE[Math.floor(Math.random() * PALETTE.length)];
 }
 
 /* --------------------------- 内置物体 --------------------------- */
 
+/**
+ * 造一个「可投放的漂浮体」。
+ * @returns {root, shape, volume, probes, size, bounds}
+ *   root   要加进场景的 Object3D（位置/朝向跟随刚体）
+ *   shape  cannon 碰撞体
+ *   volume 真实体积（m³），浮力按它算
+ */
 export function createPrimitive(type, targetSize = 1.2) {
-  const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05 });
-  let mesh, shape, volume, size;
+  const group = new THREE.Group();
+  let shape, volume;
+  let upright = false;        // 需要自扶正（重心低）的物体
 
   if (type === 'ball') {
     const r = targetSize * 0.42;
-    mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 24), mat);
+    group.add(new THREE.Mesh(
+      new THREE.SphereGeometry(r, 32, 24),
+      new THREE.MeshStandardMaterial({ color: pickColor(), roughness: 0.45, metalness: 0.05 }),
+    ));
     shape = new CANNON.Sphere(r);
     volume = (4 / 3) * Math.PI * r * r * r;
-    size = r * 2;
   } else if (type === 'crate') {
     const s = targetSize * 0.6;
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), mat);
+    group.add(new THREE.Mesh(
+      new THREE.BoxGeometry(s, s, s),
+      new THREE.MeshStandardMaterial({ color: pickColor(), roughness: 0.45, metalness: 0.05 }),
+    ));
     shape = new CANNON.Box(new CANNON.Vec3(s / 2, s / 2, s / 2));
     volume = s * s * s;
-    size = s;
   } else if (type === 'barrel') {
     const r = targetSize * 0.26, h = targetSize * 0.7;
-    mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 24), mat);
+    group.add(new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r, h, 24),
+      new THREE.MeshStandardMaterial({ color: pickColor(), roughness: 0.45, metalness: 0.1 }),
+    ));
     shape = new CANNON.Cylinder(r, r, h, 12);
     volume = Math.PI * r * r * h;
-    size = h;
   } else if (type === 'board') {
     const x = targetSize * 1.1, y = targetSize * 0.1, z = targetSize * 0.42;
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(x, y, z), mat);
+    group.add(new THREE.Mesh(
+      new THREE.BoxGeometry(x, y, z),
+      new THREE.MeshStandardMaterial({ color: pickColor(), roughness: 0.55, metalness: 0.02 }),
+    ));
     shape = new CANNON.Box(new CANNON.Vec3(x / 2, y / 2, z / 2));
     volume = x * y * z;
-    size = x;
   } else if (type === 'ring') {
     const R = targetSize * 0.4, t = targetSize * 0.11;
-    mesh = new THREE.Mesh(new THREE.TorusGeometry(R, t, 16, 28), mat);
+    group.add(new THREE.Mesh(
+      new THREE.TorusGeometry(R, t, 16, 28),
+      new THREE.MeshStandardMaterial({ color: '#FF6B5A', roughness: 0.5, metalness: 0.02 }),
+    ));
     shape = new CANNON.Cylinder(R + t, R + t, t * 2, 12);
     volume = 2 * Math.PI * Math.PI * R * t * t;
-    size = (R + t) * 2;
+  } else if (type === 'duck') {
+    // 小黄鸭：身体 + 头 + 喙 + 尾巴 + 眼睛。
+    // 碰撞体故意只用身体那个扁盒子——用球会滚，鸭子在水里应该是稳稳立着的。
+    const r = targetSize * 0.34;
+    const ico = (rad, seg = 20) => new THREE.SphereGeometry(rad, seg, Math.max(12, seg - 6));
+    const yellow = new THREE.MeshStandardMaterial({ color: '#FFD43B', roughness: 0.55, metalness: 0.02 });
+    const orange = new THREE.MeshStandardMaterial({ color: '#FF9F45', roughness: 0.5, metalness: 0.02 });
+    const black = new THREE.MeshStandardMaterial({ color: '#2B2B2B', roughness: 0.4, metalness: 0.1 });
+
+    const body = new THREE.Mesh(ico(r), yellow);
+    body.scale.set(1, 0.86, 1);
+    group.add(body);
+
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(r * 0.34, r * 0.55, 10), yellow);
+    tail.position.set(-r * 1.05, r * 0.34, 0);
+    tail.rotation.z = Math.PI * 0.42;
+    group.add(tail);
+
+    const head = new THREE.Mesh(ico(r * 0.52, 18), yellow);
+    head.position.set(r * 0.58, r * 0.76, 0);
+    group.add(head);
+
+    // 喙和眼睛要落在头球表面上：位置比头心再远一点，否则会整根埋进头里看不见
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(r * 0.19, r * 0.36, 10), orange);
+    beak.position.set(r * 1.25, r * 0.62, 0);
+    beak.rotation.z = -Math.PI / 2;   // 锥体默认朝 +Y，转成朝 +X
+    group.add(beak);
+
+    const eyeDir = new THREE.Vector3(0.55, 0.35, 0.7).normalize();
+    for (const s of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(r * 0.085, 10, 8), black);
+      eye.position.set(
+        head.position.x + eyeDir.x * r * 0.52,
+        head.position.y + eyeDir.y * r * 0.52,
+        s * eyeDir.z * r * 0.52,
+      );
+      group.add(eye);
+    }
+
+    // 碰撞盒取身体本身的包围盒（不含头和喙）：盒子太小会把探针滤到只剩 8 个，
+    // 浮力就变成阶梯式跳变，鸭子会在水面上一顿一顿地抖。
+    shape = new CANNON.Box(new CANNON.Vec3(r, r * 0.86, r));
+    volume = 0.55 * (r * 2) * (r * 1.72) * (r * 2);
+    upright = true;
+  } else if (type === 'gem') {
+    // 多面体：碰撞用球，所以会滚——这是它好玩的地方
+    const r = targetSize * 0.42;
+    const mat = new THREE.MeshStandardMaterial({
+      color: pickColor(), roughness: 0.12, metalness: 0.55, flatShading: true,
+    });
+    group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), mat));
+    shape = new CANNON.Sphere(r * 0.94);
+    volume = 0.62 * (4 / 3) * Math.PI * r * r * r;
+  } else if (type === 'log') {
+    // 浮木：圆柱躺倒，靠圆柱两侧的弧面在水里滚，但滚到一定程度会卡住
+    const r = targetSize * 0.17, h = targetSize * 1.15;
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(r, r * 1.06, h, 14),
+      new THREE.MeshStandardMaterial({ color: '#B98A5E', roughness: 0.85, metalness: 0.0 }),
+    );
+    m.rotation.z = Math.PI / 2;    // 轴朝 x
+    group.add(m);
+    shape = new CANNON.Box(new CANNON.Vec3(h / 2, r, r));
+    volume = Math.PI * r * r * h;
   } else { // block
     const x = targetSize * 0.9, y = targetSize * 0.35, z = targetSize * 0.55;
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(x, y, z), mat);
+    group.add(new THREE.Mesh(
+      new THREE.BoxGeometry(x, y, z),
+      new THREE.MeshStandardMaterial({ color: pickColor(), roughness: 0.45, metalness: 0.05 }),
+    ));
     shape = new CANNON.Box(new CANNON.Vec3(x / 2, y / 2, z / 2));
     volume = x * y * z;
-    size = x;
   }
 
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  const root = new THREE.Group();
-  root.add(mesh);
-  const bb = new THREE.Box3().setFromObject(root);
+  group.traverse((o) => {
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+  });
+
+  const bb = new THREE.Box3().setFromObject(group);
+  const bounds = bb.getSize(new THREE.Vector3());
+  // 鸭子形状不规则，采样密一点才不会因为探针太少而抖
+  const probeN = type === 'duck' ? 6 : 4;
   return {
-    root,
+    root: group,
     shape,
-    volume,
-    probes: filterProbesInside(makeProbes(bb, 4), shape),
-    size,
-    bounds: bb.getSize(new THREE.Vector3()),
+    volume: Math.max(volume, 2e-4),
+    probes: filterProbesInside(makeProbes(bb, probeN), shape),
+    size: Math.max(bounds.x, bounds.y, bounds.z),
+    bounds,
+    upright,
   };
 }
 
 export const PRIMITIVE_TYPES = [
   { id: 'ball', label: '充气球' },
+  { id: 'duck', label: '小黄鸭' },
   { id: 'crate', label: '木箱' },
   { id: 'barrel', label: '油桶' },
   { id: 'board', label: '浮板' },
   { id: 'ring', label: '救生圈' },
+  { id: 'gem', label: '多面体' },
+  { id: 'log', label: '浮木' },
   { id: 'block', label: '浮块' },
 ];

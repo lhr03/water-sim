@@ -6,6 +6,7 @@
     <view class="seg">
       <view class="seg-item {{mode==='drop'?'on':''}}" data-m="drop" bindtap="onMode">投放</view>
       <view class="seg-item {{mode==='view'?'on':''}}" data-m="view" bindtap="onMode">视角</view>
+      <view class="seg-item {{mode==='orbit'?'on':''}}" data-m="orbit" bindtap="onMode">环绕</view>
     </view>
     <view class="stat" wx:if="{{!loading}}">{{count}} 个物体 · {{qualityName}}</view>
     <view class="stat" wx:else>装载中…</view>
@@ -34,9 +35,20 @@
       <!-- 常用操作 -->
       <view class="ops">
         <view class="op" bindtap="onAdd">投放物体</view>
-        <view class="op" bindtap="onImport">导入模型</view>
+        <view class="op" bindtap="onShake">推一把</view>
         <view class="op" bindtap="onClear">清空</view>
         <view class="op" bindtap="onResetView">复位视角</view>
+      </view>
+
+      <!-- 一键场景预设 -->
+      <view class="presets">
+        <view
+          wx:for="{{presets}}"
+          wx:key="id"
+          class="preset {{preset===item.id?'on':''}}"
+          data-p="{{item.id}}"
+          bindtap="onPreset"
+        >{{item.name}}</view>
       </view>
 
       <!-- 分组切换 -->
@@ -48,6 +60,23 @@
           data-t="{{item.id}}"
           bindtap="onTab"
         >{{item.name}}</view>
+      </view>
+
+      <!-- 投放类型：选好之后点水面就丢这个 -->
+      <view wx:if="{{tab==='body'}}" class="row">
+        <view class="row-head">
+          <text class="lab">点水面丢什么</text>
+          <text class="val">{{dropTypeName}}</text>
+        </view>
+        <view class="chips">
+          <view
+            wx:for="{{objectTypes}}"
+            wx:key="id"
+            class="chip {{dropType===item.id?'on':''}}"
+            data-t="{{item.id}}"
+            bindtap="onDropType"
+          >{{item.label}}</view>
+        </view>
       </view>
 
       <!-- 滑块组 -->

@@ -2,6 +2,10 @@ import * as CANNON from '../lib/cannon-es.js';
 
 const G = 9.82;
 const FIXED = 1 / 60;
+const UP_Y = new CANNON.Vec3(0, 1, 0);
+// 自扶正力矩的刚度与阻尼（见 substep 第 6 步）
+const UPRIGHT_K = 3.0;
+const UPRIGHT_C = 0.9;
 
 /**
  * 水物理世界：
@@ -37,6 +41,8 @@ export class WaterPhysics {
 
     this._tmp = new CANNON.Vec3();
     this._tmp2 = new CANNON.Vec3();
+    this._up = new CANNON.Vec3();
+    this._axis = new CANNON.Vec3();
   }
 
   addStaticBox(half, pos, tag = 'pool') {
@@ -77,6 +83,7 @@ export class WaterPhysics {
       probes: o.probes,
       size: o.size,
       seed: o.seed ?? Math.random() * 10,
+      upright: !!o.upright,
       lastRatio: 0,
       prevRatio: 0,
       wet: false,
@@ -123,6 +130,27 @@ export class WaterPhysics {
 
   wakeAll() {
     for (const e of this.bodies) e.body.wakeUp();
+  }
+
+  /**
+   * 给所有漂浮物一个随机冲量（「推一把」按钮）。
+   * 冲量要按质量给，否则重的木箱纹丝不动、轻的鸭子飞到天上。
+   * @param dv 期望的速度变化量（m/s）
+   */
+  kick(dv = 2.2) {
+    for (const e of this.bodies) {
+      const b = e.body;
+      if (!b || b.mass <= 0) continue;
+      b.wakeUp();
+      this._tmp.set(
+        (Math.random() - 0.5) * dv * b.mass,
+        (0.35 + Math.random() * 0.75) * dv * b.mass,
+        (Math.random() - 0.5) * dv * b.mass,
+      );
+      // 作用点抬高一点，让物体同时翻转，不然只是整体平移
+      this._tmp2.set(0, e.size * 0.22, 0);
+      b.applyImpulse(this._tmp, this._tmp2);
+    }
   }
 
   step(dt) {
@@ -210,6 +238,20 @@ export class WaterPhysics {
         this._tmp2.set(wx * mag, 0, wz * mag);
         tmp.set(0, e.size * 0.18, 0);
         body.applyForce(this._tmp2, tmp);
+      }
+
+      // ---- 6. 自扶正力矩（只给"低重心"的物体，比如小黄鸭）----
+      // 均质刚体是个盒子，翻过去 180° 也是平衡态，落水打个滚就会一直倒着浮。
+      // 真实的鸭子靠重心在浮心下方自己翻回来，这里用一个小力矩等效。
+      if (e.upright) {
+        body.quaternion.vmult(UP_Y, this._up);      // 局部 +Y 在世界里的朝向
+        this._up.cross(UP_Y, this._axis);           // 转轴 = up × 世界上，长度 = sin(倾角)
+        const k = UPRIGHT_K * body.mass * e.size;
+        const c = UPRIGHT_C * body.mass * e.size * e.size;
+        const w = body.angularVelocity;
+        body.torque.x += this._axis.x * k - w.x * c;
+        body.torque.y += this._axis.y * k - w.y * c;
+        body.torque.z += this._axis.z * k - w.z * c;
       }
     }
 
