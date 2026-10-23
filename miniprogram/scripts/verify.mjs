@@ -396,5 +396,79 @@ ok(moved === physics.bodies.length,
     '上手提示排在 flex 流里、位于画布之前（不做浮层）');
 }
 
+// 昼夜：时刻是唯一输入，天空/雾/补光/水面反射的天空色必须一起变
+{
+  const { interpolateSky, SKY_STOPS, WaterScene } = await import('../pkg-water/core/scene.js');
+  const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  // interpolateSky 复用同一个返回对象（每帧都调，不能每次都新建 7 个 Color），
+  // 所以取样时必须立刻拷贝，否则三个"不同时刻"会指向同一份数据
+  const at = (el) => {
+    const r = interpolateSky(el);
+    const copy = { sunIntensity: r.sunIntensity, hemi: r.hemi, amb: r.amb };
+    for (const k of Object.keys(r)) if (r[k] && r[k].isColor) copy[k] = r[k].clone();
+    return copy;
+  };
+
+  const noon = at(60);
+  const dusk = at(2);
+  const night = at(-22);
+  ok(noon.sunIntensity > 2 && dusk.sunIntensity < noon.sunIntensity && night.sunIntensity < 0.1,
+    `阳光强度随高度递减：正午 ${noon.sunIntensity.toFixed(2)} → 黄昏 ${dusk.sunIntensity.toFixed(2)} → 夜 ${night.sunIntensity.toFixed(2)}`);
+  // 用 -30° 而不是 -22°：-22 还在暮色渐变段里（约 0.09），真正的夜色要更低
+  ok(lum(at(-30).sky) < 0.08 && lum(noon.sky) > 0.5,
+    `天空亮度分得开：正午 ${lum(noon.sky).toFixed(2)}、深夜 ${lum(at(-30).sky).toFixed(2)}、夜里 ${lum(night.sky).toFixed(2)}`);
+  ok(night.hemi < noon.hemi && night.amb < noon.amb,
+    `夜里补光调低（半球 ${night.hemi.toFixed(2)} < ${noon.hemi.toFixed(2)}，环境 ${night.amb.toFixed(2)} < ${noon.amb.toFixed(2)}）`);
+  // 黄昏的太阳应该偏暖（红多于蓝），否则「落日」看起来像阴天
+  ok(dusk.sunColor.r > dusk.sunColor.b * 1.2,
+    `黄昏阳光偏暖：r=${dusk.sunColor.r.toFixed(2)} b=${dusk.sunColor.b.toFixed(2)}`);
+  // 插值不能跳档：扫描一圈高度，相邻两度的变化必须很小
+  let worstSky = 0, worstSun = 0;
+  for (let el = -30; el < 70; el++) {
+    const a = at(el);
+    const b = at(el + 1);
+    worstSky = Math.max(worstSky, Math.abs(lum(b.sky) - lum(a.sky)));
+    worstSun = Math.max(worstSun, Math.abs(b.sunIntensity - a.sunIntensity));
+  }
+  ok(worstSky < 0.09 && worstSun < 0.16,
+    `天光连续渐变，相邻 1° 最大跳变：天空 ${worstSky.toFixed(3)}、阳光 ${worstSun.toFixed(3)}`);
+  ok(SKY_STOPS[0].el < -20 && SKY_STOPS[SKY_STOPS.length - 1].el > 60,
+    `天光关键帧覆盖 -30°~70°（${SKY_STOPS.length} 档）`);
+
+  // setTimeOfDay：6 点日出、12 点最高、18 点日落
+  const fake = {
+    params: JSON.parse(JSON.stringify(params)),
+    dirLight: {
+      position: new THREE.Vector3(),
+      target: { position: new THREE.Vector3() },
+      intensity: 0,
+      color: new THREE.Color(),
+    },
+    water: { setSun() {}, setSky() {} },
+    scene: { background: new THREE.Color(), fog: { color: new THREE.Color() } },
+    hemi: { color: new THREE.Color(), groundColor: new THREE.Color(), intensity: 0 },
+    amb: { color: new THREE.Color(), intensity: 0 },
+    updateSun: WaterScene.prototype.updateSun,
+    _applySky: WaterScene.prototype._applySky,
+  };
+  const call = (h) => WaterScene.prototype.setTimeOfDay.call(fake, h);
+  ok(Math.abs(call(12) - 12) === 0 && Math.abs(fake.params.sunElevation - 68) < 0.01,
+    `12 点太阳最高：${fake.params.sunElevation.toFixed(1)}°、方位 ${fake.params.sunAzimuth}°`);
+  call(6);
+  ok(Math.abs(fake.params.sunElevation) < 0.01 && fake.params.sunAzimuth === 90,
+    `6 点日出：高度 ${fake.params.sunElevation.toFixed(2)}°、方位 ${fake.params.sunAzimuth}°（正东）`);
+  call(18);
+  ok(Math.abs(fake.params.sunElevation) < 0.01 && fake.params.sunAzimuth === 270,
+    `18 点日落：方位 ${fake.params.sunAzimuth}°（正西）`);
+  call(0);
+  ok(fake.params.sunElevation < -60 && fake.dirLight.intensity < 0.05,
+    `午夜太阳在地平线下 ${fake.params.sunElevation.toFixed(0)}°，阳光强度 ${fake.dirLight.intensity.toFixed(2)}`);
+  call(25);
+  ok(fake.params.timeOfDay === 24, '时刻超范围会被钳制到 24，不会把太阳算到天上');
+  call(11);
+  ok(fake.dirLight.position.y > 0 && fake.dirLight.position.length() > 60,
+    '太阳方向灯跟着时刻一起转，且仍放在远处（阴影相机才盖得住整个池子）');
+}
+
 console.log(fail === 0 ? '\n全部通过 ✓' : `\n失败 ${fail} 项 ✘`);
 process.exit(fail === 0 ? 0 : 1);

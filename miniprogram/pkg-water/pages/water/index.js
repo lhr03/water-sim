@@ -75,6 +75,17 @@ const PRESETS = [
 const OBJECT_TYPES = [{ id: 'random', label: '随机' }, ...PRIMITIVE_TYPES];
 
 /*
+ * 昼夜预设。数值是「时刻」，不是高度角——用户想的是「傍晚了」，
+ * 不是「太阳高度 8 度」。17.8 = 傍晚 17:48，太阳刚压到地平线上方，
+ * 斜光最长、石头侧面会被打亮，是一天里最好看的几分钟。
+ */
+const TIME_PRESETS = [
+  { id: 'day', name: '白天', t: 11 },
+  { id: 'dusk', name: '黄昏', t: 17.8 },
+  { id: 'night', name: '夜晚', t: 21.5 },
+];
+
+/*
  * 三步上手提示。
  *
  * 之前验证过：type="webgl" 画布是原生组件，绝对定位盖在它上面的 view 在模拟器里
@@ -112,6 +123,12 @@ Page({
     dropType: 'random',
     guideStep: 0,        // 0 = 不显示；1~3 = 正在提示第几步
     guideText: '',
+    timePresets: TIME_PRESETS,
+    timePreset: '',
+    timeOfDay: 10.5,
+    sunText: '',
+    lampIdx: 0,          // 当前在调第几盏灯
+    lampMore: false,     // 方位/离池边/高度默认收起，一屏才装得下
     dropTypeName: '随机',
     waterColors: ['#1d7fd0', '#0e5fa8', '#2fb4c8', '#1a9e8f', '#3a6fd8', '#7a5fc8'],
     lampColors: ['#ffb066', '#5ec8ff', '#ff6ec7', '#a5d6a7', '#ffd966', '#ff8a65'],
@@ -155,7 +172,16 @@ Page({
           });
           // 初始丢几个物体，一进来就能看到互撞
           for (let i = 0; i < 5; i++) this.scene.spawn('random');
-          this.setData({ loading: false, params: this.scene.params, count: this.scene.count });
+          // 配置里的 sunElevation 是抄来的旧值，必须按 timeOfDay 重算一次，
+          // 否则第一次渲染的太阳高度和滑块显示的对不上
+          this.scene.setTimeOfDay(this.scene.params.timeOfDay);
+          this.setData({
+            loading: false,
+            params: this.scene.params,
+            count: this.scene.count,
+            timeOfDay: this.scene.params.timeOfDay,
+            sunText: this._sunText(this.scene.params),
+          });
           this.scene.start();
           // 场景已经跑起来了才提示，否则用户对着空白画面读操作步骤，等于白读
           if (!this._guideDone) this._setGuideStep(1);
@@ -347,6 +373,55 @@ Page({
     this.scene.params.lights[i][key] = v;
     this.setData({ [`params.lights[${i}].${key}`]: v });
     this.scene.updateLights();
+  },
+
+  onLampPick(e) {
+    this.setData({ lampIdx: Number(e.currentTarget.dataset.i) });
+  },
+
+  onLampMore() {
+    this.setData({ lampMore: !this.data.lampMore });
+  },
+
+  /* ---------------------- 昼夜 ---------------------- */
+
+  _sunText(p) {
+    const t = p.timeOfDay ?? 12;
+    const hh = Math.floor(t);
+    let mm = Math.round((t - hh) * 60);
+    let h2 = hh;
+    // 59.6 分四舍五入会变成 60，得进位，否则显示 17:60
+    if (mm >= 60) { mm = 0; h2 = (hh + 1) % 24; }
+    const pad = (n) => (n < 10 ? `0${n}` : String(n));
+    const el = p.sunElevation;
+    const pos = el > 0.5 ? `太阳 ${Math.round(el)}°` : '太阳已落山';
+    return `${pad(h2)}:${pad(mm)} · ${pos}`;
+  },
+
+  onTimeSlider(e) {
+    if (!this.scene) return;
+    const t = this.scene.setTimeOfDay(Number(e.detail.value));
+    this.setData({
+      timeOfDay: t,
+      timePreset: '',       // 手动滑过就不再算命中某个预设
+      sunText: this._sunText(this.scene.params),
+    });
+  },
+
+  onTimePreset(e) {
+    const id = e.currentTarget.dataset.t;
+    const p = TIME_PRESETS.find((x) => x.id === id);
+    if (!p || !this.scene) return;
+    const t = this.scene.setTimeOfDay(p.t);
+    this.setData({ timeOfDay: t, timePreset: id, sunText: this._sunText(this.scene.params) });
+  },
+
+  onSunStrength(e) {
+    if (!this.scene) return;
+    const v = Number(e.detail.value);
+    this.scene.params.sunStrength = v;
+    this.scene.updateSun();
+    this.setData({ 'params.sunStrength': v });
   },
 
   onLampToggle(e) {

@@ -31,6 +31,55 @@ const _tmpColor = new THREE.Color();
 export const FIREBOX_Y = 1.19;
 
 /**
+ * 一天里几个关键时刻的天光。
+ *
+ * 全部按「太阳高度角」分档，而不是按时刻分档——时刻只是用来算高度的，
+ * 真正决定画面的是高度：高度 0° 时无论几点都是那种橙红斜光。
+ * 每档给齐 7 个值（天空/雾、天顶、半球光及其两色、环境光、阳光色与强度），
+ * 因为它们必须一起变：只改背景色会出现「天黑了地面还白着」。
+ *
+ * sunIntensity 在高度 0° 附近压到 0.35 而不是 0，是为了让日落那几分钟
+ * 还能看见物体的轮廓，不然会突然一片黑。
+ */
+export const SKY_STOPS = [
+  { el: -30, sky: '#0a1220', horizon: '#141f33', skyTop: '#04070e', sunColor: '#3d4c6b', sunIntensity: 0.02, hemiSky: '#1e2b44', hemiGround: '#0a0d12', hemi: 0.10, ambColor: '#22304a', amb: 0.05 },
+  { el: -8,  sky: '#1a2540', horizon: '#2e3a55', skyTop: '#0b1220', sunColor: '#66739a', sunIntensity: 0.06, hemiSky: '#2b3d5c', hemiGround: '#0f141c', hemi: 0.16, ambColor: '#2b3a56', amb: 0.06 },
+  { el: 0,   sky: '#e0a07a', horizon: '#ffc08a', skyTop: '#6d86ab', sunColor: '#ff9a55', sunIntensity: 0.35, hemiSky: '#e8b48e', hemiGround: '#3a3226', hemi: 0.30, ambColor: '#d8b090', amb: 0.10 },
+  { el: 8,   sky: '#eecca8', horizon: '#ffe0b8', skyTop: '#8fadc9', sunColor: '#ffbe7a', sunIntensity: 1.30, hemiSky: '#f0d8bc', hemiGround: '#4a4234', hemi: 0.40, ambColor: '#e6d2b8', amb: 0.14 },
+  { el: 22,  sky: '#cfe6f5', horizon: '#eaf4fb', skyTop: '#8dc0e2', sunColor: '#fff0d8', sunIntensity: 2.20, hemiSky: '#d6ecff', hemiGround: '#4a6b60', hemi: 0.52, ambColor: '#cfe0ee', amb: 0.17 },
+  { el: 70,  sky: '#cfe6f5', horizon: '#f4faff', skyTop: '#79b0da', sunColor: '#fffaf0', sunIntensity: 2.90, hemiSky: '#d6ecff', hemiGround: '#4a6b60', hemi: 0.58, ambColor: '#cfe0ee', amb: 0.18 },
+];
+
+const SKY_COLOR_KEYS = ['sky', 'horizon', 'skyTop', 'sunColor', 'hemiSky', 'hemiGround', 'ambColor'];
+const _skyCache = SKY_STOPS.map((s) => {
+  const o = { ...s };
+  for (const key of SKY_COLOR_KEYS) o[key] = new THREE.Color(s[key]);
+  return o;
+});
+const _skyOut = { el: 0 };
+for (const key of SKY_COLOR_KEYS) _skyOut[key] = new THREE.Color();
+
+/**
+ * 按太阳高度角在 SKY_STOPS 之间做线性插值。
+ * 返回的对象是复用的（每帧都会调），不要长期持有它的引用。
+ */
+export function interpolateSky(elevationDeg) {
+  const el = Number(elevationDeg) || 0;
+  const stops = _skyCache;
+  let i = 0;
+  while (i < stops.length - 2 && el > stops[i + 1].el) i++;
+  const a = stops[i];
+  const b = stops[i + 1];
+  const span = b.el - a.el;
+  const t = span === 0 ? 0 : Math.max(0, Math.min(1, (el - a.el) / span));
+  for (const key of SKY_COLOR_KEYS) _skyOut[key].copy(a[key]).lerp(b[key], t);
+  _skyOut.sunIntensity = a.sunIntensity + (b.sunIntensity - a.sunIntensity) * t;
+  _skyOut.hemi = a.hemi + (b.hemi - a.hemi) * t;
+  _skyOut.amb = a.amb + (b.amb - a.amb) * t;
+  return _skyOut;
+}
+
+/**
  * 石灯笼该站在哪儿。
  *
  * 直接按 (cos, sin) * radius 摆会出事：方位 165°、半径 10.5 时落点 x=-10.1、z=2.7，
@@ -172,8 +221,9 @@ export class WaterScene {
     // 阴影软化靠「补光」而不是靠模糊：太阳被挡住的地方如果纯黑，边缘再软也显得硬。
     // 半球光给天空/地面的漫反射，环境光再垫一点，阴影里就能看到石头的本色。
     // 两者加起来别超过太阳的三分之一，否则整个场景会发灰、石头失去体积感。
-    this.scene.add(new THREE.HemisphereLight(0xd6ecff, 0x4a6b60, 0.58));
-    this.scene.add(new THREE.AmbientLight(0xcfe0ee, 0.18));
+    this.hemi = new THREE.HemisphereLight(0xd6ecff, 0x4a6b60, 0.58);
+    this.amb = new THREE.AmbientLight(0xcfe0ee, 0.18);
+    this.scene.add(this.hemi, this.amb);
 
     // 3 盏可控的日式石灯笼
     this.lampGroup = new THREE.Group();
@@ -485,6 +535,23 @@ export class WaterScene {
 
   /* ------------------------------ 参数更新 ------------------------------ */
 
+  /**
+   * 把「时刻」换算成太阳的高度与方位。
+   *
+   * 6 点日出于东（方位 90°）、12 点最高（68°）、18 点日落于西（270°）。
+   * 夜里继续用同一条正弦算下去，高度变负，太阳就跑到地平线以下——
+   * 这样「时刻」这个唯一输入能连续覆盖一整天，滑到 0 点不会跳变。
+   */
+  setTimeOfDay(hours) {
+    const p = this.params;
+    const t = Math.max(0, Math.min(24, Number(hours) || 0));
+    p.timeOfDay = t;
+    p.sunElevation = 68 * Math.sin(Math.PI * (t - 6) / 12);
+    p.sunAzimuth = 90 + (t - 6) * 15;
+    this.updateSun();
+    return t;
+  }
+
   updateSun() {
     const p = this.params;
     const az = THREE.MathUtils.degToRad(p.sunAzimuth);
@@ -496,11 +563,34 @@ export class WaterScene {
     );
     this.dirLight.position.copy(dir).multiplyScalar(70);
     this.dirLight.target.position.set(0, 0, 0);
-    const elev = Math.max(0, Math.sin(el));
-    this.dirLight.intensity = 0.7 + 2.4 * elev;
-    this.dirLight.color.setHSL(0.09, 0.35 * (1 - elev * 0.6) + 0.08, 0.62 + 0.18 * elev);
+
+    const k = interpolateSky(p.sunElevation);
+    // 太阳落到地平线以下时它本来就不该再照亮任何东西；
+    // 强度只跟着高度走、不跟「时刻」走，日落前后的暖光才连续
+    this.dirLight.intensity = k.sunIntensity * (p.sunStrength ?? 1);
+    this.dirLight.color.set(k.sunColor);
     // 水面上的碎光要跟着太阳走，否则太阳挪了、反光还停在原处
-    if (this.water) this.water.setSun(dir);
+    if (this.water) {
+      this.water.setSun(dir);
+      this.water.setSky(k.horizon, k.skyTop);
+    }
+    this._applySky(k);
+  }
+
+  /** 天空色、雾色、环境补光一起跟着走，否则夜里天空黑了、地面还是白的 */
+  _applySky(k) {
+    if (this.scene.background && this.scene.background.isColor) this.scene.background.set(k.sky);
+    else this.scene.background = new THREE.Color(k.sky);
+    if (this.scene.fog) this.scene.fog.color.set(k.sky);
+    if (this.hemi) {
+      this.hemi.color.set(k.hemiSky);
+      this.hemi.groundColor.set(k.hemiGround);
+      this.hemi.intensity = k.hemi;
+    }
+    if (this.amb) {
+      this.amb.color.set(k.ambColor);
+      this.amb.intensity = k.amb;
+    }
   }
 
   updateLights() {

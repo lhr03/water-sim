@@ -48,17 +48,6 @@
         <view class="op" bindtap="onResetView">复位视角</view>
       </view>
 
-      <!-- 一键场景预设 -->
-      <view class="presets">
-        <view
-          wx:for="{{presets}}"
-          wx:key="id"
-          class="preset {{preset===item.id?'on':''}}"
-          data-p="{{item.id}}"
-          bindtap="onPreset"
-        >{{item.name}}</view>
-      </view>
-
       <!-- 分组切换 -->
       <view class="tabs">
         <view
@@ -67,6 +56,18 @@
           class="tab {{tab===item.id?'on':''}}"
           data-t="{{item.id}}"
           bindtap="onTab"
+        >{{item.name}}</view>
+      </view>
+
+      <!-- 一键场景预设：只属于「风浪」。以前每个页签都显示它，
+           白占一行，把真正的控件挤到看不见的地方 -->
+      <view wx:if="{{tab==='wave'}}" class="presets">
+        <view
+          wx:for="{{presets}}"
+          wx:key="id"
+          class="preset {{preset===item.id?'on':''}}"
+          data-p="{{item.id}}"
+          bindtap="onPreset"
         >{{item.name}}</view>
       </view>
 
@@ -134,36 +135,97 @@
 
       <!-- 灯光 -->
       <block wx:if="{{tab==='light'}}">
-        <view class="lamp" wx:for="{{params.lights}}" wx:for-index="li" wx:key="li">
-          <view class="lamp-head">
-            <text class="lamp-title">石灯笼 {{li + 1}}</text>
-            <switch checked="{{item.on}}" data-i="{{li}}" bindchange="onLampToggle" color="#2f8fd0" />
+        <!-- 阳光：时刻是唯一输入，太阳高度/方位都由它算出来 -->
+        <view class="sect">
+          <view class="sect-title">阳光</view>
+          <view class="chips">
+            <view
+              wx:for="{{timePresets}}"
+              wx:key="id"
+              class="chip {{timePreset===item.id?'on':''}}"
+              data-t="{{item.id}}"
+              bindtap="onTimePreset"
+            >{{item.name}}</view>
           </view>
+          <view class="row">
+            <view class="row-head">
+              <text class="lab">时刻</text>
+              <text class="val">{{sunText}}</text>
+            </view>
+            <slider
+              min="0" max="24" step="0.1"
+              value="{{timeOfDay}}"
+              bindchanging="onTimeSlider"
+              activeColor="#f0b429" block-size="18"
+            />
+          </view>
+          <view class="row">
+            <view class="row-head">
+              <text class="lab">阳光强度</text>
+              <text class="val">{{params.sunStrength}}×</text>
+            </view>
+            <slider
+              min="0" max="2" step="0.05"
+              value="{{params.sunStrength}}"
+              bindchanging="onSunStrength"
+              activeColor="#f0b429" block-size="18"
+            />
+          </view>
+        </view>
+
+        <!-- 石灯笼：三盏一次只显示一盏。以前三盏竖向堆叠，面板要滑很久 -->
+        <view class="sect">
+          <view class="sect-title">石灯笼</view>
+          <view class="chips">
+            <view
+              wx:for="{{params.lights}}"
+              wx:for-index="li"
+              wx:key="li"
+              class="chip {{lampIdx===li?'on':''}}"
+              data-i="{{li}}"
+              bindtap="onLampPick"
+            >灯 {{li + 1}}{{item.on ? '' : ' · 灭'}}</view>
+          </view>
+
+          <view class="lamp-head">
+            <text class="lab">{{params.lights[lampIdx].on ? '亮着' : '已熄灭'}}</text>
+            <switch
+              checked="{{params.lights[lampIdx].on}}"
+              data-i="{{lampIdx}}"
+              bindchange="onLampToggle"
+              color="#2f8fd0"
+            />
+          </view>
+
           <view class="swatches">
             <view
               wx:for="{{lampColors}}"
               wx:for-item="c"
               wx:key="*this"
-              class="sw {{item.color===c?'on':''}}"
+              class="sw {{params.lights[lampIdx].color===c?'on':''}}"
               style="background:{{c}}"
-              data-i="{{li}}"
+              data-i="{{lampIdx}}"
               data-c="{{c}}"
               bindtap="onLampColor"
             ></view>
           </view>
-          <view class="row" wx:for="{{lampSliders}}" wx:for-item="s" wx:key="key">
+
+          <view class="row" wx:for="{{lampSliders}}" wx:for-item="s" wx:key="key" wx:if="{{s.key==='intensity' || lampMore}}">
             <view class="row-head">
               <text class="lab">{{s.label}}</text>
-              <text class="val">{{params.lights[li][s.key]}}{{s.unit}}</text>
+              <text class="val">{{params.lights[lampIdx][s.key]}}{{s.unit}}</text>
             </view>
             <slider
               min="{{s.min}}" max="{{s.max}}" step="{{s.step}}"
-              value="{{params.lights[li][s.key]}}"
-              data-i="{{li}}" data-key="{{s.key}}"
+              value="{{params.lights[lampIdx][s.key]}}"
+              data-i="{{lampIdx}}" data-key="{{s.key}}"
               bindchanging="onLampSlider"
               activeColor="#2f8fd0" block-size="18"
             />
           </view>
+
+          <!-- 方位/离池边/灯芯高度先收起来：默认只留亮度，这一屏才装得下 -->
+          <view class="more" bindtap="onLampMore">{{lampMore ? '收起参数' : '更多参数（方位 / 离池边 / 高度）'}}</view>
         </view>
       </block>
 
@@ -191,5 +253,8 @@
 
       <view class="pad"></view>
     </scroll-view>
+
+    <!-- 放在 scroll-view 之后才会画在它上面；纯视觉提示，不吃触摸 -->
+    <view class="panel-fade" wx:if="{{panelOpen}}"></view>
   </view>
 </view>

@@ -323,6 +323,15 @@ export function createWater(waveField, quality = 'mid') {
     if (dir) uniforms.uSunDir.value.copy(dir).normalize();
   }
 
+  /**
+   * 反射里那层天空的颜色。
+   * 必须跟着昼夜一起变：夜里天空黑了、水面还映着白天的蓝，一眼就假。
+   */
+  function setSky(horizon, top) {
+    if (horizon) uniforms.uSkyHorizon.value.copy(horizon);
+    if (top) uniforms.uSkyTop.value.copy(top);
+  }
+
   function refresh() {
     mat.color.set(p.waterColor);
     mat.opacity = p.waterOpacity;
@@ -342,6 +351,7 @@ export function createWater(waveField, quality = 'mid') {
     uniforms,
     setFresnel,
     setSun,
+    setSky,
     /** 白沫的流动噪声需要时间 */
     tick(dt) { uniforms.uTime.value += dt; },
     dispose() {
